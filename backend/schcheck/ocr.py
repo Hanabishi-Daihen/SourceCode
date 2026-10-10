@@ -50,6 +50,7 @@ class TextLine:
     y1: float
     height: float
     glyphs: list[Glyph] = field(default_factory=list)
+    boxes: list = field(default_factory=list)  # device symbol boxes this text labels
 
     @property
     def cx(self):
@@ -349,5 +350,32 @@ def read_page(page: pymupdf.Page, lib: TemplateLibrary | None = None, strokes=No
 
 
 def _merge_split_lines(lines: list[TextLine]) -> list[TextLine]:
-    """Join single-character lines produced by neutral leftovers into neighbours."""
-    return [ln for ln in lines if ln.text.strip()]
+    """Re-join cross-references split at the slash ('2 /' + '05.E1' -> '2 /05.E1')."""
+    lines = [ln for ln in lines if ln.text.strip()]
+    used = set()
+    out = []
+    for a in lines:
+        if id(a) in used:
+            continue
+        cur = a
+        while cur.text.rstrip().endswith("/"):
+            nxt = None
+            for b in lines:
+                if b is cur or id(b) in used or b.rot != cur.rot or not b.text[:1].isdigit():
+                    continue
+                if cur.rot == 0:
+                    gap, dv = b.x0 - cur.x1, abs(b.cy - cur.cy)
+                elif cur.rot == 1:
+                    gap, dv = cur.y0 - b.y1, abs(b.cx - cur.cx)
+                else:
+                    gap, dv = b.y0 - cur.y1, abs(b.cx - cur.cx)
+                if -0.2 * cur.height < gap < 1.5 * cur.height and dv < 0.35 * cur.height:
+                    nxt = b
+                    break
+            if nxt is None:
+                break
+            used.add(id(nxt))
+            cur = TextLine(cur.text.rstrip() + nxt.text, cur.rot, min(cur.x0, nxt.x0), min(cur.y0, nxt.y0),
+                           max(cur.x1, nxt.x1), max(cur.y1, nxt.y1), cur.height, cur.glyphs + nxt.glyphs)
+        out.append(cur)
+    return out

@@ -12,6 +12,9 @@ from .strokes import extract_strokes
 XREF = re.compile(r"/(\d{1,3})\.([A-L])(\d{1,2})")
 TAG = re.compile(r"-([0-9]*[A-Z][A-Z0-9]*)")
 DIGITS = re.compile(r"^\d{1,3}$")
+# words that appear after a dash in switch labels ("ON-OFF") but are not device tags
+NOT_TAGS = {"ON", "OFF", "AUTO", "MAN", "MANUAL", "TEST", "RESET", "LOCAL", "REMOTE", "RAISE", "LOWER",
+            "STOP", "START", "OPEN", "CLOSE", "TRIP", "ALARM", "SPARE", "GND", "PE"}
 
 
 @dataclass
@@ -394,7 +397,7 @@ def _tags_in(text: str) -> list[str]:
         end = m.end()
         if end < len(t) and t[end] == ".":
             continue  # terminal reference such as -X3.26
-        if tag.isdigit() or len(tag) < 2:
+        if tag.isdigit() or len(tag) < 2 or tag in NOT_TAGS:
             continue
         out.append(tag)
     return out
@@ -418,7 +421,7 @@ def _boxes(strokes, text_atoms):
         if len(xs) != 2 or len(ys) != 2:
             continue
         wd, ht = xs[1] - xs[0], ys[1] - ys[0]
-        if 1.5 < wd < 60 and 1.5 < ht < 40:
+        if 1.5 < wd < 300 and 1.5 < ht < 200:
             out.append((xs[0], ys[0], xs[1], ys[1]))
     return _merge_touching(out)
 
@@ -459,6 +462,7 @@ def parse_schematic(info: PageInfo, strokes):
         for tag in _tags(ln):
             info.tags.setdefault(tag, []).append(ln)
             tag_lines.append((tag, ln))
+        ln.boxes = _attached_boxes(ln, boxes)
 
     xrefs = [x for ln in lines for x in _xrefs(ln)]
     used_tags = set()
@@ -568,11 +572,28 @@ def _group_rows(rows: list[TableRow]) -> list[list[TableRow]]:
     return tables
 
 
+def _attached_boxes(ln: TextLine, boxes) -> list[tuple]:
+    """Device symbol boxes the tag labels: directly below it, around it, or right beside it."""
+    H = ln.height
+    out = []
+    for b in boxes:
+        if b[2] - b[0] < 2 * H and b[3] - b[1] < 2 * H:
+            continue
+        below = -0.5 * H < b[1] - ln.y1 < 2.5 * H and b[0] - H < ln.cx < b[2] + H
+        inside = b[0] <= ln.x0 and ln.x1 <= b[2] and b[1] <= ln.y0 and ln.y1 <= b[3] and (b[2] - b[0]) < 40 * H
+        beside = abs((b[1] + b[3]) / 2 - ln.cy) < 1.5 * H + (b[3] - b[1]) / 2 and 0 <= b[0] - ln.x1 < 2 * H
+        if below or inside or beside:
+            out.append(b)
+    return out
+
+
 def _coil_anchor(ln: TextLine, boxes):
     """Centre of the coil symbol drawn next to the tag (tags sit left of the coil by convention)."""
     H = ln.height
     best = None
     for b in boxes:
+        if b[2] - b[0] > 60 or b[3] - b[1] > 40:
+            continue
         bcx, bcy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
         if abs(bcy - ln.cy) > 1.5 * H + (b[3] - b[1]) / 2:
             continue

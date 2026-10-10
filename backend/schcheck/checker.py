@@ -124,8 +124,12 @@ def check(pages: list[PageInfo]) -> Report:
         out = []
         for ln in page.tags.get(tag, []):
             H = ln.height
-            box = (ln.x0 - 1.5 * H, ln.y0 - 1.5 * H, ln.x1 + 1.5 * H, ln.y1 + 1.5 * H)
-            out.append((ln, page.grid.zones(box)))
+            # tags sit left of their symbol: look a little further to the right
+            box = (ln.x0 - 1.5 * H, ln.y0 - 1.5 * H, ln.x1 + 4 * H, ln.y1 + 1.5 * H)
+            zones = page.grid.zones(box)
+            for b in ln.boxes:
+                zones |= page.grid.zones(b)
+            out.append((ln, zones))
         return out
 
     def zs(z) -> str:
