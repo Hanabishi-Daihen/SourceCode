@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pymupdf
 
-from .glyphs import descriptor
+from .glyphs import descriptor, rotate_upright
 from .strokes import Atom, build_atoms, extract_strokes
 
 DATA = Path(__file__).resolve().parent / "data" / "glyphs.json"
@@ -25,6 +25,7 @@ MIN_SCORE = 0.80
 MAX_GLYPH = 10.0  # pt; anything larger is drawing geometry, not text
 DOT = 0.35  # pt; atoms smaller than this in both directions are dots
 NEUTRAL = {"|", "-", "/", "X", "x", "+", "."}
+BRIDGE = {"X", "x", "+"}
 
 
 @dataclass
@@ -60,6 +61,8 @@ class TextLine:
 
     def char_box(self, i: int, j: int):
         """Bounding box (display coords) of characters i..j-1 of ``text`` (spaces skipped)."""
+        if not self.glyphs:
+            return (self.x0, self.y0, self.x1, self.y1)
         gs = [g for g in self._char_glyphs()[i:j] if g is not None]
         if not gs:
             return (self.x0, self.y0, self.x1, self.y1)
@@ -88,13 +91,59 @@ class TemplateLibrary:
             self.rot.append(e["rot"])
         self.V = np.stack(vs)
         self.logA = np.log(np.array(asps))
+        self._drop_conflicting_junk()
+
+    def _drop_conflicting_junk(self, thr: float = 0.92):
+        """Junk templates that look just like a character would swallow that character."""
+        text = [i for i, c in enumerate(self.ch) if c is not None]
+        T, TA = self.V[text], self.logA[text]
+        keep = []
+        for i, c in enumerate(self.ch):
+            if c is None:
+                s = T @ self.V[i] - 0.5 * np.abs(TA - self.logA[i])
+                if s.max() >= thr:
+                    continue
+            keep.append(i)
+        self.V, self.logA = self.V[keep], self.logA[keep]
+        self.ch = [self.ch[i] for i in keep]
+        self.rot = [self.rot[i] for i in keep]
 
     def classify(self, atom: Atom):
-        polys = [[(x - atom.x0, y - atom.y0) for x, y in s.pts] for s in atom.strokes]
-        v, _, _, a = descriptor(polys)
-        sims = self.V @ v - 0.5 * np.abs(self.logA - np.log(a))
-        k = int(np.argmax(sims))
-        return self.ch[k], self.rot[k], float(sims[k])
+        return self.classify_many([atom])[0]
+
+    def classify_many(self, atoms: list[Atom]):
+        """Best template for each atom: (char or None, rot, score)."""
+        if not atoms:
+            return []
+        polys_l = [[[(x - at.x0, y - at.y0) for x, y in s.pts] for s in at.strokes] for at in atoms]
+        descs = [descriptor(p) for p in polys_l]
+        Q = np.stack([d[0] for d in descs])
+        la = np.log(np.array([d[3] for d in descs]))
+        sims = Q @ self.V.T - 0.5 * np.abs(self.logA[None, :] - la[:, None])
+        best = np.argmax(sims, axis=1)
+        out = []
+        for i, k in enumerate(best):
+            ch, rot = self.ch[k], self.rot[k]
+            if ch in ("P", "R"):
+                ch = _p_or_r(polys_l[i], rot)
+            out.append((ch, rot, float(sims[i, k])))
+        return out
+
+
+def _p_or_r(polys, rot: int) -> str:
+    """P and R differ only by R's leg reaching the bottom-right corner."""
+    up = rotate_upright(polys, rot)
+    xs = [p[0] for pl in up for p in pl]
+    ys = [p[1] for pl in up for p in pl]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    w, h = max(x1 - x0, 1e-6), max(y1 - y0, 1e-6)
+    for pl in up:
+        for (ax, ay), (bx, by) in zip(pl, pl[1:] or pl):
+            for t in (0.0, 0.5, 1.0):
+                px, py = ax + (bx - ax) * t, ay + (by - ay) * t
+                if (px - x0) / w > 0.55 and (py - y0) / h > 0.85:
+                    return "R"
+    return "P"
 
 
 _LIB: TemplateLibrary | None = None
@@ -126,16 +175,20 @@ def _neutral_char(ch: str, rot: int) -> str:
     return {"|": "-", "-": "|"}.get(ch, ch)
 
 
-def classify_page(page: pymupdf.Page, lib: TemplateLibrary | None = None) -> list[Glyph]:
+def classify_page(page: pymupdf.Page, lib: TemplateLibrary | None = None, strokes=None) -> list[Glyph]:
     lib = lib or library()
     glyphs = []
-    for at in build_atoms(extract_strokes(page), 12):
+    if strokes is None:
+        strokes = extract_strokes(page)
+    cands = []
+    for at in build_atoms(strokes, 12):
         if at.w <= DOT and at.h <= DOT:
             glyphs.append(Glyph(at, ".", 0, 1.0, at.x0, at.y0, at.x1, at.y1))
             continue
         if max(at.w, at.h) > MAX_GLYPH or len(at.strokes) > 25:
             continue
-        ch, rot, sc = lib.classify(at)
+        cands.append(at)
+    for at, (ch, rot, sc) in zip(cands, lib.classify_many(cands)):
         if ch is None or sc < MIN_SCORE:
             continue
         glyphs.append(Glyph(at, ch, rot, sc, at.x0, at.y0, at.x1, at.y1))
@@ -144,9 +197,12 @@ def classify_page(page: pymupdf.Page, lib: TemplateLibrary | None = None) -> lis
 
 def _lines_for(glyphs: list[Glyph], rot: int, taken: set[int]) -> list[tuple[list[int], float]]:
     """Group glyphs of one reading direction into lines.  Returns (indices, height)."""
-    seeds = [i for i, g in enumerate(glyphs) if i not in taken and g.rot == rot and g.ch not in NEUTRAL]
-    if not seeds:
+    core = {i for i, g in enumerate(glyphs) if i not in taken and g.rot == rot and g.ch not in NEUTRAL}
+    if not core:
         return []
+    # symmetric characters may bridge two parts of a line, but never start one on their own
+    bridges = {i for i, g in enumerate(glyphs) if i not in taken and g.ch in BRIDGE and g.rot in (0, rot)}
+    seeds = list(core | bridges)
     fb = {i: _frame(glyphs[i], rot) for i in range(len(glyphs))}
     parent = {i: i for i in seeds}
 
@@ -178,7 +234,9 @@ def _lines_for(glyphs: list[Glyph], rot: int, taken: set[int]) -> list[tuple[lis
 
     lines = []
     for members in groups.values():
-        hs = sorted(fb[i][3] - fb[i][1] for i in members)
+        if not any(i in core for i in members):
+            continue
+        hs = sorted(fb[i][3] - fb[i][1] for i in members if i in core)
         H = hs[len(hs) // 2]
         lines.append((members, H))
     return lines
@@ -217,7 +275,7 @@ def _line_text(glyphs, members, H, rot):
     vs = [fb[i] for i in members if glyphs[i].ch not in NEUTRAL]
     base = sorted(v[3] for v in vs)[len(vs) // 2] if vs else max(fb[i][3] for i in members)
     top = sorted(v[1] for v in vs)[len(vs) // 2] if vs else min(fb[i][1] for i in members)
-    out, prev_u1, gl = [], None, []
+    out, prev_u1, prev_w, gl = [], None, None, []
     for i in members:
         g = glyphs[i]
         u0, v0, u1, v1 = fb[i]
@@ -234,11 +292,15 @@ def _line_text(glyphs, members, H, rot):
                 ch = "_" if mid > base - 0.15 * H else "-"
         if ch == "." and (v0 + v1) / 2 < top + 0.6 * (base - top):
             ch = "·"  # mid-height dot (e.g. a junction or a multiplication sign)
-        if prev_u1 is not None and u0 - prev_u1 > 0.55 * H:
-            out.append(" ")
+        if prev_u1 is not None:
+            # narrow glyphs such as '1' sit centred in a wider cell: discount that slack
+            slack = 0.5 * max(0.0, 0.5 * H - w) + 0.5 * max(0.0, 0.5 * H - prev_w)
+            if u0 - prev_u1 - slack > 0.55 * H:
+                out.append(" ")
         out.append(ch)
         gl.append(g)
         prev_u1 = u1 if prev_u1 is None else max(prev_u1, u1)
+        prev_w = w
     text = "".join(out)
     text = _fix_bars(text)
     x0 = min(glyphs[i].x0 for i in members)
@@ -249,21 +311,24 @@ def _line_text(glyphs, members, H, rot):
 
 
 def _fix_bars(text: str) -> str:
-    """'|' is '1' next to digits and 'I' next to letters."""
+    """A bare vertical bar is '1' among digits and 'I' before letters."""
     chars = list(text)
     for k, ch in enumerate(chars):
         if ch != "|":
             continue
-        nb = [c for c in (chars[k - 1] if k else "", chars[k + 1] if k + 1 < len(chars) else "") if c and c not in " |"]
-        if any(c.isdigit() or c in "./" for c in nb) or not nb:
-            chars[k] = "1"
-        else:
+        prev = chars[k - 1] if k else ""
+        nxt = chars[k + 1] if k + 1 < len(chars) else ""
+        if nxt.isalpha() and nxt not in "|":
             chars[k] = "I"
+        elif prev.isalpha() and not nxt.isdigit() and nxt not in "./" and prev not in "|":
+            chars[k] = "I"
+        else:
+            chars[k] = "1"
     return "".join(chars)
 
 
-def read_page(page: pymupdf.Page, lib: TemplateLibrary | None = None) -> list[TextLine]:
-    glyphs = classify_page(page, lib)
+def read_page(page: pymupdf.Page, lib: TemplateLibrary | None = None, strokes=None) -> list[TextLine]:
+    glyphs = classify_page(page, lib, strokes)
     taken: set[int] = set()
     all_lines = []
     for rot in (0, 1, 3):

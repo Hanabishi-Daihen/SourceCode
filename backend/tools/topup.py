@@ -20,7 +20,7 @@ from schcheck.glyphs import atom_polylines
 from schcheck.ocr import DATA
 from autolabel import render
 
-THR = 0.9
+THR = float(__import__("os").environ.get("TOPUP_THR", "0.9"))
 
 
 def load_db():

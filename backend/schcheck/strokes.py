@@ -67,16 +67,21 @@ class Atom:
 def extract_strokes(page: pymupdf.Page) -> list[Stroke]:
     """All stroked polylines on the page in rotated (display) coordinates."""
     m = page.rotation_matrix
+    a, b, c, d, e, f = m.a, m.b, m.c, m.d, m.e, m.f
+
+    def tf(p):
+        x, y = p.x, p.y
+        return (round(a * x + c * y + e, 3), round(b * x + d * y + f, 3))
+
     out: list[Stroke] = []
-    for d in page.get_drawings():
-        if d.get("type") not in ("s", "fs"):
+    for dr in page.get_drawings():
+        if dr.get("type") not in ("s", "fs"):
             continue
         cur: list[tuple[float, float]] = []
-        for it in d["items"]:
+        for it in dr["items"]:
             kind = it[0]
-            if kind == "l":
-                a, b = it[1] * m, it[2] * m
-                pa, pb = (round(a.x, 3), round(a.y, 3)), (round(b.x, 3), round(b.y, 3))
+            if kind == "l" or kind == "c":
+                pa, pb = tf(it[1]), tf(it[2] if kind == "l" else it[4])
                 if cur and _close(cur[-1], pa):
                     cur.append(pb)
                 else:
@@ -84,21 +89,19 @@ def extract_strokes(page: pymupdf.Page) -> list[Stroke]:
                         out.append(Stroke(cur))
                     cur = [pa, pb]
             elif kind == "re":
-                r = it[1] * m
+                r = it[1]
                 if cur:
                     out.append(Stroke(cur))
                     cur = []
-                out.append(Stroke([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1), (r.x0, r.y0)]))
-            elif kind == "c":
-                pts = [p * m for p in it[1:]]
-                pa = (round(pts[0].x, 3), round(pts[0].y, 3))
-                pb = (round(pts[3].x, 3), round(pts[3].y, 3))
-                if cur and _close(cur[-1], pa):
-                    cur.append(pb)
-                else:
-                    if cur:
-                        out.append(Stroke(cur))
-                    cur = [pa, pb]
+                pts = [tf(r.tl), tf(r.tr), tf(r.br), tf(r.bl)]
+                out.append(Stroke(pts + [pts[0]]))
+            elif kind == "qu":
+                q = it[1]
+                if cur:
+                    out.append(Stroke(cur))
+                    cur = []
+                pts = [tf(q.ul), tf(q.ur), tf(q.lr), tf(q.ll)]
+                out.append(Stroke(pts + [pts[0]]))
             else:
                 if cur:
                     out.append(Stroke(cur))
@@ -191,7 +194,7 @@ def build_atoms(strokes: list[Stroke], max_size: float, tol: float = 0.3) -> lis
         ri, rj = find(i), find(j)
         if ri == rj:
             continue
-        t = min(0.5, 0.05 * max(gsize.get(ri, 0), gsize.get(rj, 0)))
+        t = min(0.6, 0.075 * max(gsize.get(ri, 0), gsize.get(rj, 0)))
         if t > tol and strokes_touch(small[i], small[j], t):
             parent[ri] = rj
     groups: dict[int, Atom] = {}
