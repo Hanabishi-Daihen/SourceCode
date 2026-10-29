@@ -6,6 +6,9 @@ Apps Script ทำหน้าที่แค่ส่งหน้าเว็�
 
 ไฟล์ PDF ไม่ถูกส่งออกไปที่ใด ยกเว้นตอนกด "บันทึก PDF ลง Google Drive"
 
+ทุกอย่างมาจากโปรเจค Apps Script เพียงที่เดียว ไลบรารีอ่าน PDF (pdf.js) และสร้าง PDF (pdf-lib)
+ถูกรวมไว้ในโปรเจคแล้ว หน้าเว็บจึงไม่ดึงไฟล์จากเว็บไซต์อื่นเลย (ไม่ใช้ CDN และไม่ใช้ Google Fonts)
+
 ## ไฟล์ที่ต้องใช้
 
 ไฟล์ที่พร้อมใช้อยู่ใน `dist/apps-script/`:
@@ -19,6 +22,9 @@ Apps Script ทำหน้าที่แค่ส่งหน้าเว็�
 | `Core.html` | ตัวอ่านตัวอักษร SHX และตัวตรวจ |
 | `Glyphs.html` | คลังรูปทรงตัวอักษร |
 | `Ui.html` | การทำงานของหน้าเว็บ |
+| `PdfJs.html` | ไลบรารี pdf.js สำหรับอ่าน PDF |
+| `PdfWorker1.html`, `PdfWorker2.html`, `PdfWorker3.html` | ส่วนทำงานเบื้องหลังของ pdf.js (แบ่งเป็น 3 ไฟล์ไม่ให้ไฟล์ใหญ่เกินไป) |
+| `PdfLib.html` | ไลบรารี pdf-lib สำหรับสร้าง PDF ที่ทำ highlight |
 
 `dist/standalone.html` คือหน้าเดียวกันรวมเป็นไฟล์เดียว เปิดใน Chrome/Edge ได้เลยโดยไม่ต้องใช้ Apps Script
 (ปุ่มบันทึกลง Google Sheets/Drive จะไม่แสดงในโหมดนี้)
@@ -30,8 +36,10 @@ Apps Script ทำหน้าที่แค่ส่งหน้าเว็�
 3. กลับมาที่ **Editor** แล้ว
    - เปิด `appsscript.json` แทนที่เนื้อหาด้วยไฟล์ `dist/apps-script/appsscript.json`
    - เปิด `Code.gs` แทนที่เนื้อหาด้วยไฟล์ `dist/apps-script/Code.gs`
-   - กด **+** → **HTML** สร้างไฟล์ชื่อ `Index`, `Styles`, `Core`, `Glyphs`, `Ui`
-     (พิมพ์ชื่อโดยไม่ต้องมี `.html`) แล้ววางเนื้อหาจากไฟล์ชื่อเดียวกันใน `dist/apps-script/`
+   - กด **+** → **HTML** สร้างไฟล์ชื่อ `Index`, `Styles`, `Core`, `Glyphs`, `Ui`, `PdfJs`, `PdfLib`,
+     `PdfWorker1`, `PdfWorker2`, `PdfWorker3` (พิมพ์ชื่อโดยไม่ต้องมี `.html` และต้องสะกดตรงตัวพิมพ์ใหญ่-เล็ก)
+     แล้ววางเนื้อหาจากไฟล์ชื่อเดียวกันใน `dist/apps-script/`
+     ไฟล์ไลบรารีมีขนาด 300–500 KB การวางอาจใช้เวลาไม่กี่วินาที
 4. กด **Save** (Ctrl+S)
 5. กด **Deploy** → **New deployment** → เลือกประเภท **Web app**
    - **Execute as:** `User accessing the web app` (ผลจะถูกบันทึกลง Drive ของแต่ละคน)
@@ -64,8 +72,8 @@ clasp deploy
 3. คลิกรายการทางซ้ายเพื่อดูจุดบนแบบพร้อมกรอบ highlight
 4. ดาวน์โหลด PDF ที่ทำ highlight / รายงาน CSV หรือบันทึกลง Google Sheets / Drive
 
-ต้องใช้ browser รุ่นใหม่ (Chrome, Edge, Firefox, Safari) และต้องต่ออินเทอร์เน็ตเพื่อโหลด pdf.js และ pdf-lib จาก CDN
-(cdnjs.cloudflare.com หรือสำรองที่ cdn.jsdelivr.net)
+ต้องใช้ browser รุ่นใหม่ (Chrome, Edge, Firefox, Safari) หน้าเว็บติดต่อเฉพาะ Google
+(ตัว Web app และตอนกดบันทึกลง Sheets/Drive) จึงใช้ได้แม้เครือข่ายบริษัทจะบล็อกเว็บภายนอก
 
 ## สำหรับนักพัฒนา
 
@@ -81,5 +89,7 @@ node test/run-node.mjs drawing.pdf report.json   # ตรวจไฟล์จ�
 - `src/core/` — ตัวอ่านและตัวตรวจ (port มาจาก `backend/schcheck/` ที่เป็น Python)
 - `src/ui/` — หน้าเว็บ
 - `src/gas/` — โค้ดฝั่ง Apps Script
+- `build.mjs` รวม pdf.js 3.11.174 และ pdf-lib 1.17.1 จาก `node_modules` เข้าไปในไฟล์ Apps Script
+  (ใบอนุญาต: pdf.js — Apache License 2.0, pdf-lib — MIT; ข้อความใบอนุญาตอยู่ในหัวไฟล์ของแต่ละไลบรารี)
 - `build-glyphs.mjs` — แปลงคลังตัวอักษร `backend/schcheck/data/glyphs.json` เป็น `build/glyphs.js`
   ถ้าเพิ่มตัวอักษรใหม่ด้วย `backend/tools/topup.py` ให้รัน `npm run build` ใหม่

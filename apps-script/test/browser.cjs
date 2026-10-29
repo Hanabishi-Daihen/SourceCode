@@ -3,27 +3,28 @@
 const path = require("path");
 const fs = require("fs");
 const { chromium } = require(require("child_process").execSync("npm root -g").toString().trim() + "/playwright");
-const nm = path.join(__dirname, "..", "node_modules");
-const LIBS = {
-  "pdf.min.js": path.join(nm, "pdfjs-dist/build/pdf.min.js"),
-  "pdf.worker.min.js": path.join(nm, "pdfjs-dist/build/pdf.worker.min.js"),
-  "pdf-lib.min.js": path.join(nm, "pdf-lib/dist/pdf-lib.min.js"),
-};
 
 (async () => {
   const [pdfFile, out] = process.argv.slice(2);
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+  await ctx.addInitScript((noWorker) => {
+    // record whether pdf.js got a real Web Worker (NO_WORKER=1 simulates a browser without them)
+    const W = window.Worker;
+    window.__workers = 0;
+    window.Worker = function (...a) { if (noWorker) throw new Error("workers disabled"); window.__workers++; return new W(...a); };
+  }, !!process.env.NO_WORKER);
   const p = await ctx.newPage();
   const errs = [];
   p.on("pageerror", (e) => errs.push(e.message));
   p.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
+  // the page must be self-contained: refuse and record every request to another site
+  const external = [];
   await p.route("**/*", (route) => {
     const u = route.request().url();
-    const lib = Object.keys(LIBS).find((k) => u.endsWith("/" + k));
-    if (lib) return route.fulfill({ path: LIBS[lib], contentType: "text/javascript", headers: { "Access-Control-Allow-Origin": "*" } });
-    if (u.includes("fonts.g")) return route.fulfill({ body: "", contentType: "text/css" });
-    return route.continue();
+    if (u.startsWith("file:") || u.startsWith("blob:") || u.startsWith("data:")) return route.continue();
+    external.push(u);
+    return route.abort();
   });
   // pretend to be inside Apps Script so the Drive/Sheets buttons appear
   await p.addInitScript(() => {
@@ -55,8 +56,10 @@ const LIBS = {
   await dl2.saveAs(path.join(out, "gas_report.csv"));
   await p.click("#toSheet"); await p.waitForTimeout(500);
   await p.click("#toDrive"); await p.waitForTimeout(3000);
+  console.log("web workers started:", await p.evaluate(() => window.__workers));
   console.log("apps script calls:", JSON.stringify(await p.evaluate(() => window.__gsCalls)));
   await p.screenshot({ path: path.join(out, "gas_toast.png") });
+  console.log("external requests:", external);
   console.log("errors:", errs);
   await b.close();
 })();

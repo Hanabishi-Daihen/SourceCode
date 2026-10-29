@@ -17,10 +17,6 @@
     BOM_SHEET_UNUSED: "BOM: SHEET ไม่มีอุปกรณ์ในแถว",
     NOT_IN_BOM: "ไม่มีใน BOM",
   };
-  const WORKERS = [
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
-    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js",
-  ];
   const MAX_CANVAS_PIXELS = 16e6;
   const inAppsScript = typeof google !== "undefined" && google.script && google.script.run;
 
@@ -32,18 +28,16 @@
 
   // ------------------------------------------------------------------ setup
   async function setupPdfJs() {
-    if (!window.pdfjsLib) throw new Error("โหลด pdf.js ไม่ได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
-    // a worker from another origin cannot be started directly; run it from a blob instead
-    for (const url of WORKERS) {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        const blob = new Blob([await res.text()], { type: "text/javascript" });
-        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
-        return;
-      } catch (e) { /* try the next mirror */ }
+    if (!window.pdfjsLib || !window.PDFLib) throw new Error("โหลดไลบรารีของหน้าเว็บไม่ครบ ลองเปิดหน้าใหม่อีกครั้ง");
+    // the pdf.js worker is bundled as text (split over a few files); start it from a blob
+    const code = [...document.querySelectorAll("script.pdfjs-worker")].map((s) => s.textContent).join("");
+    try {
+      const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+      pdfjsLib.GlobalWorkerOptions.workerPort = new Worker(url);
+    } catch (e) {
+      // no Web Worker allowed here: run pdf.js on the page itself
+      (0, eval)(code);
     }
-    pdfjsLib.GlobalWorkerOptions.workerSrc = WORKERS[0];
   }
   const ready = setupPdfJs();
 

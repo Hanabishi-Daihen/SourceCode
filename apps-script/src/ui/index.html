@@ -4,14 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ตรวจสอบ Schematic</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
   <!-- @include style.css -->
-  <!-- pdf.js and pdf-lib run the whole check inside the browser; nothing is uploaded -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>window.pdfjsLib || document.write('<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"><\/script>');</script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-  <script>window.PDFLib || document.write('<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"><\/script>');</script>
+  <!-- pdf.js and pdf-lib are bundled with the page: nothing is loaded from other sites -->
+  <!-- @include pdfjs -->
+  <!-- @include pdflib -->
 </head>
 <body>
   <header class="top">
@@ -91,6 +87,9 @@
     </section>
   </main>
   <div class="toast" id="toast" hidden></div>
+  <!-- @include worker1 -->
+  <!-- @include worker2 -->
+  <!-- @include worker3 -->
   <!-- @include core.js -->
   <!-- @include glyphs.js -->
   <!-- @include ui.js -->
