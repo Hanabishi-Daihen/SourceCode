@@ -7,3 +7,4 @@ dist/
 backend/data/
 apps-script/node_modules/
 apps-script/build/
+!apps-script/dist/
