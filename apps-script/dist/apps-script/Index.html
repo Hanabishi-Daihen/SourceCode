@@ -6,71 +6,147 @@
   <title>ตรวจสอบ Schematic</title>
   <?!= include('Styles'); ?>
 </head>
-<body data-version="ebe57bfa">
+<body data-version="a7234d36" data-view="upload">
   <header class="top">
     <div class="brand">
-      <span class="logo" aria-hidden="true">⌁</span>
-      <div>
-        <h1>ตรวจสอบ Schematic Diagram</h1>
-        <p class="sub">ตรวจตำแหน่งอุปกรณ์ใน BOM และ cross-reference ของ Coil / Contact · รุ่น <span id="scVersion">ebe57bfa</span></p>
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="9" y="7" width="14" height="10" rx="1.5"/>
+        <path d="M16 2v5M16 17v5M7 27h6l6-5M19 27h6"/>
+      </svg>
+      <div class="brand-text">
+        <h1>ตรวจสอบ Schematic</h1>
+        <p class="sub"><span class="sub-long">BOM และ cross-reference ของ Coil / Contact · </span><span class="ver">รุ่น <span id="scVersion">a7234d36</span></span></p>
       </div>
     </div>
     <div class="actions" id="exportActions" hidden>
-      <button class="btn" id="dlPdf" type="button">ดาวน์โหลด PDF ที่ทำ highlight</button>
-      <button class="btn ghost" id="dlCsv" type="button">ดาวน์โหลดรายงาน (CSV)</button>
-      <button class="btn ghost" id="toSheet" type="button" hidden>บันทึกรายงานลง Google Sheets</button>
-      <button class="btn ghost" id="toDrive" type="button" hidden>บันทึก PDF ลง Google Drive</button>
-      <button class="btn ghost" id="newCheck" type="button">ตรวจไฟล์ใหม่</button>
+      <span class="file-chip" id="fileChip"></span>
+      <button class="btn primary" id="dlPdf" type="button">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0 4-4m-4 4-4-4M4 16h12"/></svg>
+        ดาวน์โหลด PDF ที่ทำ highlight
+      </button>
+      <div class="menu" id="moreMenu">
+        <button class="btn" id="moreBtn" type="button" aria-haspopup="true" aria-expanded="false">ส่งออกแบบอื่น
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
+        </button>
+        <div class="menu-list" id="moreList" role="menu" hidden>
+          <button type="button" role="menuitem" id="dlCsv"><b>รายงาน CSV</b><span>เปิดด้วย Excel ได้</span></button>
+          <button type="button" role="menuitem" id="toSheet" hidden><b>บันทึกลง Google Sheets</b><span>สร้างไฟล์ใหม่ใน Drive ของคุณ</span></button>
+          <button type="button" role="menuitem" id="toDrive" hidden><b>บันทึก PDF ลง Google Drive</b><span>PDF ที่ทำ highlight แล้ว</span></button>
+        </div>
+      </div>
+      <button class="btn text" id="newCheck" type="button">ตรวจไฟล์ใหม่</button>
     </div>
   </header>
 
   <main>
+    <!-- ============================================================ upload -->
     <section id="uploadView" class="upload">
+      <div class="hero">
+        <p class="eyebrow">ตรวจแบบก่อนส่งงาน</p>
+        <h2 class="display">หาจุดที่ตำแหน่งอ้างอิงในแบบไม่ตรงกัน</h2>
+        <p class="lead">เลือก PDF ชุดแบบทั้งชุด (หน้า BOM และ Schematic) โปรแกรมจะอ่านแบบทุกหน้า ทำ highlight จุดที่ผิด และบอกว่าต้องแก้อย่างไร</p>
+      </div>
+
       <label class="drop" id="drop">
         <input type="file" id="fileInput" accept="application/pdf">
-        <span class="drop-icon" aria-hidden="true">⇪</span>
-        <strong>ลากไฟล์ PDF มาวาง หรือคลิกเพื่อเลือกไฟล์</strong>
-        <span class="hint">PDF ชุดแบบทั้งหมดในไฟล์เดียว (หน้า BOM + Schematic)</span>
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48"><path d="M14 6h14l10 10v26H14z"/><path d="M28 6v10h10"/><path d="M26 36V24m0 0-5 5m5-5 5 5"/></svg>
+        </span>
+        <span class="drop-title">ลากไฟล์ PDF มาวางตรงนี้</span>
+        <span class="hint">หรือ <u>คลิกเพื่อเลือกไฟล์</u> · ไฟล์เดียวรวมทุกหน้า</span>
       </label>
-      <div class="progress" id="progress" hidden>
-        <div class="progress-label"><span id="progressText">กำลังเปิดไฟล์…</span><span id="progressCount"></span></div>
+
+      <div class="progress-card" id="progress" hidden>
+        <div class="progress-head">
+          <span class="spinner" aria-hidden="true"></span>
+          <div>
+            <div class="progress-file" id="progressFile"></div>
+            <div class="progress-text" id="progressText">กำลังเปิดไฟล์…</div>
+          </div>
+          <span class="progress-count" id="progressCount"></span>
+        </div>
         <div class="bar"><div class="fill" id="progressFill"></div></div>
-      </div>
-      <p class="error-msg" id="uploadError" hidden></p>
-      <div class="how">
-        <h2>โปรแกรมตรวจอะไรบ้าง</h2>
-        <ol>
-          <li><b>ตาราง contact ใต้ coil</b> เช่น <code>4 —/— 7 /24.C4</code> ต้องมี contact ของอุปกรณ์นั้นวาดอยู่ที่ SHEET 24 ตำแหน่ง C4 จริง</li>
-          <li><b>ตำแหน่ง coil ที่เขียนไว้ข้าง contact</b> เช่น <code>-KH1 /16.G2</code> ต้องตรงกับตำแหน่ง coil จริง</li>
-          <li><b>contact ทุกตัว</b> ต้องมีอยู่ในตารางใต้ coil ของมัน</li>
-          <li><b>BOM</b> อุปกรณ์แต่ละตัวต้องปรากฏใน SHEET ที่ระบุไว้</li>
+        <ol class="stages" id="stages">
+          <li data-stage="0">เปิดไฟล์</li>
+          <li data-stage="1">เตรียมคลังตัวอักษร</li>
+          <li data-stage="2">อ่านแบบทีละหน้า</li>
+          <li data-stage="3">สรุปผล</li>
         </ol>
-        <p class="note">ไฟล์ถูกอ่านและตรวจในเครื่องของคุณเอง ไม่มีการส่งไฟล์ออกไปที่ใด</p>
       </div>
+      <div class="alert" id="uploadError" role="alert" hidden></div>
+
+      <h3 class="section-title">โปรแกรมตรวจ 3 หมวด</h3>
+      <div class="cards">
+        <article class="card">
+          <span class="cat-icon cat-coil" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="8" rx="1"/><path d="M8 16h8M8 20h5"/></svg></span>
+          <h4>ตาราง contact ใต้ coil</h4>
+          <p>ตารางใต้ coil เช่น <code>4-7 /24.C4</code> ต้องมี contact ของอุปกรณ์นั้นวาดอยู่ที่ SHEET 24 ตำแหน่ง C4 จริง</p>
+        </article>
+        <article class="card">
+          <span class="cat-icon cat-contact" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 15h6l7-6M16 15h5M12 5v4"/></svg></span>
+          <h4>ตำแหน่ง coil ที่ contact อ้างถึง</h4>
+          <p>ตัวเลขใต้ contact เช่น <code>-KH1 /16.G2</code> ต้องตรงกับตำแหน่ง coil จริง และ contact ทุกตัวต้องอยู่ในตารางใต้ coil</p>
+        </article>
+        <article class="card">
+          <span class="cat-icon cat-bom" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span>
+          <h4>Bill of Material</h4>
+          <p>อุปกรณ์แต่ละตัวในตาราง BOM ต้องปรากฏใน SHEET ที่ระบุไว้ และ coil ทุกตัวในแบบต้องมีอยู่ใน BOM</p>
+        </article>
+      </div>
+      <p class="note">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 0 1 6 0v3"/></svg>
+        ไฟล์ถูกอ่านและตรวจในเบราว์เซอร์ของคุณเอง ไม่มีการส่งไฟล์ออกไปที่ใด
+      </p>
     </section>
 
+    <!-- ============================================================ result -->
     <section id="resultView" class="result" hidden>
       <aside class="panel">
         <div class="summary" id="summary"></div>
+
+        <nav class="tabs" id="catTabs" aria-label="หมวด"></nav>
+
         <div class="filters">
           <div class="seg" role="group" aria-label="ระดับ">
             <button type="button" data-sev="all" class="on">ทั้งหมด</button>
             <button type="button" data-sev="error">ผิดพลาด</button>
             <button type="button" data-sev="warning">เตือน</button>
           </div>
-          <select id="typeFilter" aria-label="ประเภท"></select>
-          <input type="search" id="search" placeholder="ค้นหา เช่น KH1 หรือ 24.C4">
+          <label class="check"><input type="checkbox" id="hideDone"> ซ่อนที่แก้แล้ว</label>
+          <div class="search">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg>
+            <input type="search" id="search" placeholder="ค้นหา เช่น KH1 หรือ 24.C4" aria-label="ค้นหา">
+          </div>
+          <label class="group-by">จัดกลุ่มตาม
+            <select id="groupBy">
+              <option value="sheet">SHEET</option>
+              <option value="type">ประเภทปัญหา</option>
+            </select>
+          </label>
         </div>
-        <ol class="findings" id="findings"></ol>
+
+        <div class="findings" id="findings"></div>
       </aside>
+
       <section class="viewer">
         <div class="viewer-bar">
-          <select id="pageSelect" aria-label="หน้า"></select>
-          <div class="zoom">
-            <button type="button" id="zoomOut" aria-label="ย่อ">−</button>
+          <div class="nav-group">
+            <button type="button" class="icon-btn" id="prevPage" aria-label="หน้าก่อนหน้า" title="หน้าก่อนหน้า"><svg viewBox="0 0 20 20"><path d="m12 5-5 5 5 5"/></svg></button>
+            <select id="pageSelect" aria-label="หน้า"></select>
+            <button type="button" class="icon-btn" id="nextPage" aria-label="หน้าถัดไป" title="หน้าถัดไป"><svg viewBox="0 0 20 20"><path d="m8 5 5 5-5 5"/></svg></button>
+          </div>
+          <div class="nav-group">
+            <button type="button" class="btn small" id="prevFinding" title="รายการก่อนหน้า (K)">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5"/></svg>ก่อนหน้า</button>
+            <span class="pos" id="findingPos"></span>
+            <button type="button" class="btn small" id="nextFinding" title="รายการถัดไป (J)">ถัดไป
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></button>
+          </div>
+          <div class="nav-group zoom">
+            <button type="button" class="icon-btn" id="zoomOut" aria-label="ย่อ" title="ย่อ"><svg viewBox="0 0 20 20"><path d="M5 10h10"/></svg></button>
             <span id="zoomText">100%</span>
-            <button type="button" id="zoomIn" aria-label="ขยาย">+</button>
-            <button type="button" id="zoomFit">พอดีจอ</button>
+            <button type="button" class="icon-btn" id="zoomIn" aria-label="ขยาย" title="ขยาย"><svg viewBox="0 0 20 20"><path d="M5 10h10M10 5v10"/></svg></button>
+            <button type="button" class="btn small" id="zoomFit">พอดีจอ</button>
           </div>
         </div>
         <div class="current" id="current" hidden></div>
@@ -80,10 +156,16 @@
             <svg id="overlay"></svg>
           </div>
         </div>
+        <div class="legend">
+          <span><i class="sw error"></i>ผิดพลาด</span>
+          <span><i class="sw warning"></i>เตือน</span>
+          <span><i class="sw other"></i>รายการอื่นในหน้านี้ (คลิกเพื่อเลือก)</span>
+          <span class="keys">ลากเพื่อเลื่อนแบบ · Ctrl + ล้อเมาส์ เพื่อซูม · <kbd>J</kbd> / <kbd>K</kbd> รายการถัดไป / ก่อนหน้า · <kbd>Space</kbd> ทำเครื่องหมายว่าแก้แล้ว</span>
+        </div>
       </section>
     </section>
   </main>
-  <div class="toast" id="toast" hidden></div>
+  <div class="toast" id="toast" role="status" hidden></div>
   <!-- pdf.js and pdf-lib are bundled with the page (base64, decoded by ui.js): nothing is loaded from other sites -->
   <?!= include('PdfJs1'); ?>
   <?!= include('PdfJs2'); ?>

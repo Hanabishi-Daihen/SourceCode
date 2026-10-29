@@ -5,227 +5,496 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ตรวจสอบ Schematic</title>
   <style>
+/* Warm cream canvas, coral primary actions, serif display type. */
 :root {
-  --bg: #f4f5f7;
+  --canvas: #faf9f5;
   --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #dde1e7;
-  --text: #1c2430;
-  --muted: #5f6b7a;
-  --accent: #1f5fbf;
-  --accent-ink: #ffffff;
-  --error: #c62828;
-  --error-bg: #fdecec;
-  --warn: #b26a00;
-  --warn-bg: #fff4e0;
-  --ok: #2e7d32;
-  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  --surface-soft: #f5f0e8;
+  --surface-card: #efe9de;
+  --surface-strong: #e8e0d2;
+  --hairline: #e6dfd8;
+  --hairline-soft: #ebe6df;
+  --drop-line: #cfc5b4;
+  --ink: #141413;
+  --body: #3d3d3a;
+  --muted: #6c6a64;
+  --muted-soft: #8e8b82;
+  --primary: #cc785c;
+  --primary-btn: #b4603f;
+  --primary-press: #8f4630;
+  --on-primary: #ffffff;
+  --error: #b03a3a;
+  --error-bg: #f9e6e1;
+  --error-line: #c64545;
+  --warn: #8a6300;
+  --warn-bg: #fbf1dc;
+  --warn-line: #d4a017;
+  --ok: #3f7a4a;
+  --ok-bg: #e5f1e5;
+  --teal: #2f7f70;
+  --cat-coil: #cc785c;
+  --cat-contact: #5db8a6;
+  --cat-bom: #e8a55a;
+  --toast-bg: #181715;
+  --toast-ink: #faf9f5;
+  --sheet-shadow: 0 1px 3px rgba(20, 20, 19, .10);
+  --focus-ring: 0 0 0 3px rgba(204, 120, 92, .28);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #12161c; --surface: #1a2029; --surface-2: #222a35; --border: #2f3946;
-    --text: #e6eaf0; --muted: #9aa6b5; --accent: #6ea8ff; --accent-ink: #0b1220;
-    --error: #ff7a7a; --error-bg: #3a1f22; --warn: #ffb74d; --warn-bg: #3a2d17; --ok: #81c784;
-    --shadow: none; color-scheme: dark;
+    --canvas: #181715; --surface: #1f1e1b; --surface-soft: #252320; --surface-card: #2a2825; --surface-strong: #34312c;
+    --hairline: #34312c; --hairline-soft: #2b2926; --drop-line: #4a463f; --ink: #faf9f5; --body: #e4e1da; --muted: #a09d96; --muted-soft: #8a877f;
+    --primary: #e08a6e; --primary-btn: #cc785c; --primary-press: #e39b82; --on-primary: #181715;
+    --error: #f08a80; --error-bg: #3a2220; --error-line: #e0625a; --warn: #e8b85a; --warn-bg: #352a16; --warn-line: #e0b030;
+    --ok: #8fcf98; --ok-bg: #1f3022; --teal: #7fd0c0; --toast-bg: #faf9f5; --toast-ink: #181715;
+    --sheet-shadow: 0 0 0 1px #34312c; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #12161c; --surface: #1a2029; --surface-2: #222a35; --border: #2f3946;
-  --text: #e6eaf0; --muted: #9aa6b5; --accent: #6ea8ff; --accent-ink: #0b1220;
-  --error: #ff7a7a; --error-bg: #3a1f22; --warn: #ffb74d; --warn-bg: #3a2d17; --ok: #81c784;
-  --shadow: none; color-scheme: dark;
+  --canvas: #181715; --surface: #1f1e1b; --surface-soft: #252320; --surface-card: #2a2825; --surface-strong: #34312c;
+  --hairline: #34312c; --hairline-soft: #2b2926; --drop-line: #4a463f; --ink: #faf9f5; --body: #e4e1da; --muted: #a09d96; --muted-soft: #8a877f;
+  --primary: #e08a6e; --primary-btn: #cc785c; --primary-press: #e39b82; --on-primary: #181715;
+  --error: #f08a80; --error-bg: #3a2220; --error-line: #e0625a; --warn: #e8b85a; --warn-bg: #352a16; --warn-line: #e0b030;
+  --ok: #8fcf98; --ok-bg: #1f3022; --teal: #7fd0c0; --toast-bg: #faf9f5; --toast-ink: #181715;
+  --sheet-shadow: 0 0 0 1px #34312c; color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.55 "Sarabun", "Noto Sans Thai", "Leelawadee UI", "Leelawadee", "Thonburi", "Tahoma", system-ui, sans-serif;
+  background: var(--canvas);
+  color: var(--body);
+  font: 15px/1.6 "Inter", "Sarabun", "Noto Sans Thai", "Leelawadee UI", "Leelawadee", "Thonburi", "Tahoma", system-ui, sans-serif;
   display: flex;
   flex-direction: column;
+  -webkit-font-smoothing: antialiased;
 }
-code { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: .92em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.display, h1, .stat-big .n {
+  font-family: "Tiempos Headline", "Cormorant Garamond", "EB Garamond", "Noto Serif Thai", Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  color: var(--ink);
+}
+code, kbd { font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: .88em; }
+code { background: var(--surface-card); color: var(--ink); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+kbd { border: 1px solid var(--hairline); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); color: var(--ink); }
+svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+[hidden] { display: none !important; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+/* ---------------------------------------------------------------- header */
 .top {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-  padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap;
+  min-height: 64px; padding: 10px 24px; background: var(--canvas); border-bottom: 1px solid var(--hairline);
 }
-.brand { display: flex; align-items: center; gap: 12px; }
-.logo { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-size: 20px; }
-h1 { font-size: 18px; margin: 0; font-weight: 600; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.logo { width: 34px; height: 34px; flex: none; color: var(--primary); stroke-width: 2; }
+h1 { font-size: 22px; line-height: 1.2; margin: 0; letter-spacing: -.3px; }
 .sub { margin: 0; color: var(--muted); font-size: 13px; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.btn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;
-  background: var(--accent); color: var(--accent-ink); text-decoration: none; border: 1px solid var(--accent);
-  font: inherit; font-size: 14px; cursor: pointer;
+.ver { color: var(--muted-soft); }
+body[data-view="result"] .sub-long { display: none; }
+.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.file-chip {
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--muted); padding: 4px 12px; border-radius: 99px; background: var(--surface-card);
 }
-.btn.ghost { background: transparent; color: var(--accent); }
-.btn:hover { filter: brightness(1.05); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 40px; padding: 0 16px;
+  border-radius: 8px; border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
+  font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.btn svg { width: 18px; height: 18px; }
+.btn:active { background: var(--surface-card); }
+.btn.primary { background: var(--primary-btn); border-color: var(--primary-btn); color: var(--on-primary); }
+.btn.primary:active { background: var(--primary-press); border-color: var(--primary-press); }
+.btn.text { border-color: transparent; background: transparent; }
+.btn.text:active { background: var(--surface-card); }
+.btn.small { height: 32px; padding: 0 10px; font-size: 13px; }
+.btn.small svg { width: 16px; height: 16px; }
+.btn[disabled] { opacity: .55; cursor: progress; }
+.icon-btn {
+  width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: 99px;
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink); cursor: pointer; padding: 0;
+}
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn:active { background: var(--surface-card); }
+.icon-btn[disabled], .btn.small[disabled] { opacity: .4; cursor: default; }
+
+.menu { position: relative; }
+.menu-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 260px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; box-shadow: 0 8px 24px rgba(20, 20, 19, .12);
+}
+.menu-list button {
+  display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 8px 12px; border: 0;
+  border-radius: 8px; background: transparent; text-align: left; cursor: pointer;
+}
+.menu-list button:active, .menu-list button:focus-visible { background: var(--surface-soft); }
+.menu-list b { font-weight: 500; color: var(--ink); font-size: 14px; }
+.menu-list span { font-size: 12px; color: var(--muted); }
 
 main { flex: 1; min-height: 0; display: flex; }
-[hidden] { display: none !important; }
 
-/* upload */
-.upload { margin: 40px auto; width: min(720px, calc(100% - 32px)); }
+/* ---------------------------------------------------------------- upload */
+.upload { margin: 0 auto; width: min(1000px, calc(100% - 32px)); padding: 48px 0 64px; overflow: auto; }
+.hero { max-width: 720px; margin-bottom: 28px; }
+.eyebrow { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--primary); }
+.display { font-size: clamp(30px, 4.4vw, 44px); line-height: 1.15; letter-spacing: -.8px; margin: 0 0 14px; }
+.lead { margin: 0; font-size: 17px; color: var(--body); max-width: 640px; }
+
 .drop {
-  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 48px 20px;
-  border: 2px dashed var(--border); border-radius: 14px; background: var(--surface); cursor: pointer; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 44px 20px; text-align: center;
+  border: 1.5px dashed var(--drop-line); border-radius: 16px; background: var(--surface); cursor: pointer;
   transition: border-color .15s, background .15s;
 }
-.drop:hover, .drop.over { border-color: var(--accent); background: var(--surface-2); }
-.drop input { display: none; }
-.drop-icon { font-size: 34px; color: var(--accent); }
-.hint { color: var(--muted); font-size: 13px; }
-.progress { margin-top: 18px; }
-.progress-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; margin-bottom: 6px; }
-.bar { height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
-.fill { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-.error-msg { color: var(--error); background: var(--error-bg); padding: 10px 12px; border-radius: 8px; }
-.how { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
-.how h2 { font-size: 15px; margin: 0 0 8px; }
-.how ol { margin: 0; padding-left: 20px; color: var(--muted); }
-.how li { margin: 4px 0; }
-.how b { color: var(--text); font-weight: 500; }
+.drop:hover, .drop.over { border-color: var(--primary); background: var(--surface-soft); }
+.drop:focus-within { box-shadow: var(--focus-ring); }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop-icon { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 99px; background: var(--surface-card); color: var(--primary); margin-bottom: 6px; }
+.drop-icon svg { width: 36px; height: 36px; stroke-width: 2; }
+.drop-title { font-size: 18px; font-weight: 500; color: var(--ink); }
+.hint { color: var(--muted); font-size: 14px; }
+.hint u { color: var(--primary); text-underline-offset: 3px; }
 
-/* results */
-.result { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 420px) 1fr; }
-.panel { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
-.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 14px; border-bottom: 1px solid var(--border); }
-.stat { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
-.stat .n { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.stat .l { font-size: 12px; color: var(--muted); }
-.stat.err .n { color: var(--error); }
-.stat.warn .n { color: var(--warn); }
-.file-line { grid-column: 1 / -1; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-card { padding: 24px; border-radius: 16px; background: var(--surface); border: 1px solid var(--hairline); }
+.progress-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.progress-head > div { flex: 1; min-width: 0; }
+.progress-file { font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-text { color: var(--muted); font-size: 14px; }
+.progress-count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.spinner { width: 22px; height: 22px; border-radius: 99px; border: 2.5px solid var(--surface-card); border-top-color: var(--primary); animation: spin .9s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.bar { height: 8px; background: var(--surface-card); border-radius: 99px; overflow: hidden; }
+.fill { height: 100%; width: 0; background: var(--primary); border-radius: 99px; transition: width .3s; }
+.stages { display: flex; gap: 6px 18px; flex-wrap: wrap; list-style: none; margin: 14px 0 0; padding: 0; font-size: 13px; color: var(--muted-soft); }
+.stages li { display: flex; align-items: center; gap: 6px; }
+.stages li::before { content: ""; width: 8px; height: 8px; border-radius: 99px; background: var(--surface-strong); }
+.stages li.now { color: var(--ink); font-weight: 500; }
+.stages li.now::before { background: var(--primary); box-shadow: 0 0 0 3px rgba(204, 120, 92, .25); }
+.stages li.done { color: var(--muted); }
+.stages li.done::before { background: var(--ok); }
 
-.filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.seg button { border: 0; background: transparent; color: var(--muted); padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
-.seg button.on { background: var(--accent); color: var(--accent-ink); }
-select, input[type=search] {
-  font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); min-width: 0;
+.alert { margin-top: 14px; padding: 12px 16px; border-radius: 12px; background: var(--error-bg); color: var(--error); border: 1px solid transparent; }
+.alert b { display: block; color: var(--error); }
+
+.section-title { margin: 44px 0 14px; font-size: 18px; font-weight: 500; color: var(--ink); }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card { background: var(--surface-card); border-radius: 12px; padding: 24px; }
+.card h4 { margin: 12px 0 6px; font-size: 16px; font-weight: 500; color: var(--ink); }
+.card p { margin: 0; font-size: 14px; color: var(--body); }
+.cat-icon { width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: 10px; color: #fff; flex: none; }
+.cat-icon svg { width: 20px; height: 20px; }
+.cat-coil { background: var(--cat-coil); }
+.cat-contact { background: var(--cat-contact); }
+.cat-bom { background: var(--cat-bom); }
+.note { display: flex; align-items: center; gap: 8px; margin: 20px 0 0; color: var(--muted); font-size: 13px; }
+.note svg { width: 18px; height: 18px; flex: none; }
+
+/* ---------------------------------------------------------------- results */
+.result { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 440px) 1fr; }
+.panel { background: var(--canvas); border-right: 1px solid var(--hairline); display: flex; flex-direction: column; min-height: 0; }
+
+.summary { padding: 16px 18px 14px; border-bottom: 1px solid var(--hairline); }
+.summary-top { display: flex; align-items: flex-end; gap: 22px; flex-wrap: wrap; }
+.stat-big .n { font-size: 40px; line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.stat-big .l { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.stat-big.err .n { color: var(--error); }
+.stat-big.warn .n { color: var(--warn); }
+.stat-big.ok .n { color: var(--ok); }
+.review { flex: 1; min-width: 140px; }
+.review-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.review-label b { color: var(--ink); font-weight: 500; }
+.review .fill { background: var(--ok); }
+.stat-line { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+.stat-line b { color: var(--ink); font-weight: 500; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--hairline); }
+.tab {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap;
 }
-input[type=search] { flex: 1 1 140px; }
+.tab .dot { width: 8px; height: 8px; border-radius: 99px; }
+.tab .count { font-size: 12px; font-variant-numeric: tabular-nums; padding: 0 7px; border-radius: 99px; background: var(--surface-card); color: var(--muted); }
+.tab.on { background: var(--surface-card); color: var(--ink); }
+.tab.on .count { background: var(--surface); color: var(--ink); }
+.tab[disabled] { opacity: .45; cursor: default; }
 
-.findings { list-style: none; margin: 0; padding: 6px; overflow: auto; flex: 1; min-height: 0; }
-.finding { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; }
-.finding:hover { background: var(--surface-2); }
-.finding.sel { border-color: var(--accent); background: var(--surface-2); }
-.finding .meta { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 3px; flex-wrap: wrap; }
-.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-bottom: 1px solid var(--hairline); }
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--surface-card); }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 4px 10px; font-size: 13px; font-weight: 500; border-radius: 6px; cursor: pointer; }
+.seg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(20, 20, 19, .08); }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--body); cursor: pointer; }
+.check input, .done-toggle input { accent-color: var(--ok); width: 16px; height: 16px; margin: 0; }
+.search { position: relative; flex: 1 1 100%; }
+.search svg { position: absolute; left: 10px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--muted-soft); }
+.search input {
+  width: 100%; height: 36px; padding: 0 12px 0 32px; border-radius: 8px; border: 1px solid var(--hairline);
+  background: var(--surface); color: var(--ink); font-size: 14px;
+}
+.search input:focus { border-color: var(--primary); box-shadow: var(--focus-ring); outline: none; }
+.group-by { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-left: auto; }
+select {
+  height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--hairline); background: var(--surface);
+  color: var(--ink); font-size: 13px; min-width: 0; cursor: pointer;
+}
+
+.findings { overflow: auto; flex: 1; min-height: 0; padding: 0 10px 16px; }
+.group-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 12px 6px 6px; background: var(--canvas); font-size: 12px; font-weight: 500; letter-spacing: .6px; color: var(--muted);
+}
+.group-head b { color: var(--ink); font-size: 13px; letter-spacing: 0; font-weight: 500; }
+.finding {
+  position: relative; padding: 12px 14px 12px 16px; margin-bottom: 6px; border-radius: 12px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--hairline-soft); outline: none;
+}
+.finding::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 0 3px 3px 0; background: var(--error-line); }
+.finding.warning::before { background: var(--warn-line); }
+.finding:hover { border-color: var(--hairline); }
+.finding.sel { border-color: var(--primary); box-shadow: var(--focus-ring); }
+.finding.done { background: transparent; }
+.finding.done::before { background: var(--ok); }
+.finding.done .msg, .finding.done .fix-box { opacity: .55; }
+.f-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.f-type { font-weight: 500; color: var(--body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-n { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted-soft); }
+.badge { flex: none; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px; }
 .badge.error { color: var(--error); background: var(--error-bg); }
 .badge.warning { color: var(--warn); background: var(--warn-bg); }
-.finding .msg { font-size: 14px; }
-.finding .fix { font-size: 13px; color: var(--ok); margin-top: 2px; }
-.empty { color: var(--muted); padding: 24px; text-align: center; }
+.badge.done { color: var(--ok); background: var(--ok-bg); }
+.msg { font-size: 14px; color: var(--ink); line-height: 1.5; word-break: break-word; }
+.fix-box { display: flex; gap: 8px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--surface-soft); font-size: 13px; color: var(--body); }
+.fix-box .k { flex: none; font-weight: 600; color: var(--ok); }
+.f-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.loc {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 99px; border: 1px solid var(--hairline);
+  background: var(--surface); color: var(--body); font-size: 12px; cursor: pointer;
+}
+.loc:active { background: var(--surface-card); }
+.loc.here { border-color: var(--primary); color: var(--ink); }
+.done-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
 
-.viewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.viewer-bar { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.zoom { display: inline-flex; align-items: center; gap: 6px; }
-.zoom button { font: inherit; font-size: 13px; min-width: 32px; padding: 5px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 7px; cursor: pointer; }
-#zoomText { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
-.current { padding: 8px 14px; background: var(--error-bg); color: var(--text); font-size: 14px; border-bottom: 1px solid var(--border); }
+.empty { margin: 24px 6px; padding: 28px 20px; text-align: center; border-radius: 12px; background: var(--surface-soft); color: var(--muted); }
+.empty.good { background: var(--ok-bg); color: var(--ok); }
+.empty .big { display: block; font-size: 18px; font-weight: 500; color: inherit; margin-bottom: 4px; }
+.empty.good .big { color: var(--ok); }
+
+/* ---------------------------------------------------------------- viewer */
+.viewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface-soft); }
+.viewer-bar {
+  display: flex; gap: 8px 14px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  padding: 8px 14px; background: var(--canvas); border-bottom: 1px solid var(--hairline);
+}
+.nav-group { display: inline-flex; align-items: center; gap: 6px; }
+.nav-group select { max-width: 280px; }
+.pos { min-width: 64px; text-align: center; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#zoomText { min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
+
+.current {
+  display: flex; gap: 12px; align-items: flex-start; padding: 10px 16px; font-size: 14px;
+  background: var(--error-bg); color: var(--ink); border-bottom: 1px solid var(--hairline);
+}
 .current.warning { background: var(--warn-bg); }
-.current .fix { color: var(--ok); }
-.canvas { flex: 1; overflow: auto; min-height: 0; padding: 16px; }
-.sheet { position: relative; display: inline-block; box-shadow: var(--shadow); background: #fff; }
+.current .c-body { flex: 1; min-width: 0; }
+.current .c-msg { color: var(--ink); }
+.current .c-fix { color: var(--body); margin-top: 2px; }
+.current .c-fix b { color: var(--ok); font-weight: 600; }
+.current .c-locs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+
+.canvas { flex: 1; overflow: auto; min-height: 0; padding: 16px; cursor: grab; }
+.canvas.panning { cursor: grabbing; user-select: none; }
+.sheet { position: relative; display: inline-block; box-shadow: var(--sheet-shadow); background: #fff; border-radius: 2px; }
 .sheet canvas { display: block; user-select: none; }
 .sheet svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.mark { fill: rgba(220, 30, 30, .10); stroke: #d32f2f; stroke-width: 2.5; }
-.mark.warning { fill: rgba(240, 140, 0, .12); stroke: #ef8f00; }
-.mark.other { fill: none; stroke-width: 1.5; stroke-dasharray: 4 3; opacity: .7; }
+.mark { fill: rgba(198, 69, 69, .10); stroke: #c64545; stroke-width: 2.5; pointer-events: all; cursor: pointer; }
+.mark.warning { fill: rgba(212, 160, 23, .14); stroke: #d4a017; }
+.mark.other { fill: rgba(0, 0, 0, 0); stroke-width: 1.5; stroke-dasharray: 4 3; opacity: .75; }
+.mark.other.done { stroke: #5db872; opacity: .5; }
 .mark.focus { animation: pulse 1.2s ease-in-out 2; }
 @keyframes pulse { 50% { stroke-width: 6; } }
 
-@media (max-width: 860px) {
-  main { display: block; }
-  .result { display: block; }
-  .panel { border-right: 0; border-bottom: 1px solid var(--border); }
-  .findings { max-height: 55vh; }
-  .canvas { height: 75vh; }
-  .top { padding: 10px 16px; }
+.legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 7px 16px;
+  font-size: 12px; color: var(--muted); background: var(--canvas); border-top: 1px solid var(--hairline);
 }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 10px; border-radius: 2px; border: 2px solid #c64545; background: rgba(198, 69, 69, .10); }
+.sw.warning { border-color: #d4a017; background: rgba(212, 160, 23, .14); }
+.sw.other { border: 1.5px dashed var(--muted); background: transparent; }
+.legend .keys { margin-left: auto; color: var(--muted-soft); }
 
-.note { margin-top: 14px; color: var(--muted); font-size: 13px; }
+/* ---------------------------------------------------------------- toast */
 .toast {
-  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100% - 32px);
-  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; box-shadow: var(--shadow); z-index: 10;
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: calc(100% - 32px); z-index: 30;
+  background: var(--toast-bg); color: var(--toast-ink); padding: 12px 18px; border-radius: 12px; font-size: 14px;
+  box-shadow: 0 8px 24px rgba(20, 20, 19, .2);
 }
-.toast a { color: inherit; font-weight: 600; }
-.btn[disabled] { opacity: .55; cursor: progress; }
+.toast a { color: inherit; font-weight: 600; text-underline-offset: 3px; }
+
+/* ---------------------------------------------------------------- responsive */
+@media (max-width: 1100px) {
+  .legend .keys { display: none; }
+  .file-chip { display: none; }
+}
+@media (max-width: 860px) {
+  main { display: block; overflow: auto; }
+  .top { padding: 10px 16px; }
+  .upload { padding-top: 28px; }
+  .cards { grid-template-columns: 1fr; }
+  .result { display: block; }
+  .panel { border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .findings { max-height: 60vh; }
+  .viewer { height: 85vh; }
+  .actions { width: 100%; }
+  .actions .btn.primary { flex: 1; }
+}
 </style>
 
 </head>
-<body data-version="ebe57bfa">
+<body data-version="a7234d36" data-view="upload">
   <header class="top">
     <div class="brand">
-      <span class="logo" aria-hidden="true">⌁</span>
-      <div>
-        <h1>ตรวจสอบ Schematic Diagram</h1>
-        <p class="sub">ตรวจตำแหน่งอุปกรณ์ใน BOM และ cross-reference ของ Coil / Contact · รุ่น <span id="scVersion">ebe57bfa</span></p>
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="9" y="7" width="14" height="10" rx="1.5"/>
+        <path d="M16 2v5M16 17v5M7 27h6l6-5M19 27h6"/>
+      </svg>
+      <div class="brand-text">
+        <h1>ตรวจสอบ Schematic</h1>
+        <p class="sub"><span class="sub-long">BOM และ cross-reference ของ Coil / Contact · </span><span class="ver">รุ่น <span id="scVersion">a7234d36</span></span></p>
       </div>
     </div>
     <div class="actions" id="exportActions" hidden>
-      <button class="btn" id="dlPdf" type="button">ดาวน์โหลด PDF ที่ทำ highlight</button>
-      <button class="btn ghost" id="dlCsv" type="button">ดาวน์โหลดรายงาน (CSV)</button>
-      <button class="btn ghost" id="toSheet" type="button" hidden>บันทึกรายงานลง Google Sheets</button>
-      <button class="btn ghost" id="toDrive" type="button" hidden>บันทึก PDF ลง Google Drive</button>
-      <button class="btn ghost" id="newCheck" type="button">ตรวจไฟล์ใหม่</button>
+      <span class="file-chip" id="fileChip"></span>
+      <button class="btn primary" id="dlPdf" type="button">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0 4-4m-4 4-4-4M4 16h12"/></svg>
+        ดาวน์โหลด PDF ที่ทำ highlight
+      </button>
+      <div class="menu" id="moreMenu">
+        <button class="btn" id="moreBtn" type="button" aria-haspopup="true" aria-expanded="false">ส่งออกแบบอื่น
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
+        </button>
+        <div class="menu-list" id="moreList" role="menu" hidden>
+          <button type="button" role="menuitem" id="dlCsv"><b>รายงาน CSV</b><span>เปิดด้วย Excel ได้</span></button>
+          <button type="button" role="menuitem" id="toSheet" hidden><b>บันทึกลง Google Sheets</b><span>สร้างไฟล์ใหม่ใน Drive ของคุณ</span></button>
+          <button type="button" role="menuitem" id="toDrive" hidden><b>บันทึก PDF ลง Google Drive</b><span>PDF ที่ทำ highlight แล้ว</span></button>
+        </div>
+      </div>
+      <button class="btn text" id="newCheck" type="button">ตรวจไฟล์ใหม่</button>
     </div>
   </header>
 
   <main>
+    <!-- ============================================================ upload -->
     <section id="uploadView" class="upload">
+      <div class="hero">
+        <p class="eyebrow">ตรวจแบบก่อนส่งงาน</p>
+        <h2 class="display">หาจุดที่ตำแหน่งอ้างอิงในแบบไม่ตรงกัน</h2>
+        <p class="lead">เลือก PDF ชุดแบบทั้งชุด (หน้า BOM และ Schematic) โปรแกรมจะอ่านแบบทุกหน้า ทำ highlight จุดที่ผิด และบอกว่าต้องแก้อย่างไร</p>
+      </div>
+
       <label class="drop" id="drop">
         <input type="file" id="fileInput" accept="application/pdf">
-        <span class="drop-icon" aria-hidden="true">⇪</span>
-        <strong>ลากไฟล์ PDF มาวาง หรือคลิกเพื่อเลือกไฟล์</strong>
-        <span class="hint">PDF ชุดแบบทั้งหมดในไฟล์เดียว (หน้า BOM + Schematic)</span>
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48"><path d="M14 6h14l10 10v26H14z"/><path d="M28 6v10h10"/><path d="M26 36V24m0 0-5 5m5-5 5 5"/></svg>
+        </span>
+        <span class="drop-title">ลากไฟล์ PDF มาวางตรงนี้</span>
+        <span class="hint">หรือ <u>คลิกเพื่อเลือกไฟล์</u> · ไฟล์เดียวรวมทุกหน้า</span>
       </label>
-      <div class="progress" id="progress" hidden>
-        <div class="progress-label"><span id="progressText">กำลังเปิดไฟล์…</span><span id="progressCount"></span></div>
+
+      <div class="progress-card" id="progress" hidden>
+        <div class="progress-head">
+          <span class="spinner" aria-hidden="true"></span>
+          <div>
+            <div class="progress-file" id="progressFile"></div>
+            <div class="progress-text" id="progressText">กำลังเปิดไฟล์…</div>
+          </div>
+          <span class="progress-count" id="progressCount"></span>
+        </div>
         <div class="bar"><div class="fill" id="progressFill"></div></div>
-      </div>
-      <p class="error-msg" id="uploadError" hidden></p>
-      <div class="how">
-        <h2>โปรแกรมตรวจอะไรบ้าง</h2>
-        <ol>
-          <li><b>ตาราง contact ใต้ coil</b> เช่น <code>4 —/— 7 /24.C4</code> ต้องมี contact ของอุปกรณ์นั้นวาดอยู่ที่ SHEET 24 ตำแหน่ง C4 จริง</li>
-          <li><b>ตำแหน่ง coil ที่เขียนไว้ข้าง contact</b> เช่น <code>-KH1 /16.G2</code> ต้องตรงกับตำแหน่ง coil จริง</li>
-          <li><b>contact ทุกตัว</b> ต้องมีอยู่ในตารางใต้ coil ของมัน</li>
-          <li><b>BOM</b> อุปกรณ์แต่ละตัวต้องปรากฏใน SHEET ที่ระบุไว้</li>
+        <ol class="stages" id="stages">
+          <li data-stage="0">เปิดไฟล์</li>
+          <li data-stage="1">เตรียมคลังตัวอักษร</li>
+          <li data-stage="2">อ่านแบบทีละหน้า</li>
+          <li data-stage="3">สรุปผล</li>
         </ol>
-        <p class="note">ไฟล์ถูกอ่านและตรวจในเครื่องของคุณเอง ไม่มีการส่งไฟล์ออกไปที่ใด</p>
       </div>
+      <div class="alert" id="uploadError" role="alert" hidden></div>
+
+      <h3 class="section-title">โปรแกรมตรวจ 3 หมวด</h3>
+      <div class="cards">
+        <article class="card">
+          <span class="cat-icon cat-coil" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="8" rx="1"/><path d="M8 16h8M8 20h5"/></svg></span>
+          <h4>ตาราง contact ใต้ coil</h4>
+          <p>ตารางใต้ coil เช่น <code>4-7 /24.C4</code> ต้องมี contact ของอุปกรณ์นั้นวาดอยู่ที่ SHEET 24 ตำแหน่ง C4 จริง</p>
+        </article>
+        <article class="card">
+          <span class="cat-icon cat-contact" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 15h6l7-6M16 15h5M12 5v4"/></svg></span>
+          <h4>ตำแหน่ง coil ที่ contact อ้างถึง</h4>
+          <p>ตัวเลขใต้ contact เช่น <code>-KH1 /16.G2</code> ต้องตรงกับตำแหน่ง coil จริง และ contact ทุกตัวต้องอยู่ในตารางใต้ coil</p>
+        </article>
+        <article class="card">
+          <span class="cat-icon cat-bom" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span>
+          <h4>Bill of Material</h4>
+          <p>อุปกรณ์แต่ละตัวในตาราง BOM ต้องปรากฏใน SHEET ที่ระบุไว้ และ coil ทุกตัวในแบบต้องมีอยู่ใน BOM</p>
+        </article>
+      </div>
+      <p class="note">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 0 1 6 0v3"/></svg>
+        ไฟล์ถูกอ่านและตรวจในเบราว์เซอร์ของคุณเอง ไม่มีการส่งไฟล์ออกไปที่ใด
+      </p>
     </section>
 
+    <!-- ============================================================ result -->
     <section id="resultView" class="result" hidden>
       <aside class="panel">
         <div class="summary" id="summary"></div>
+
+        <nav class="tabs" id="catTabs" aria-label="หมวด"></nav>
+
         <div class="filters">
           <div class="seg" role="group" aria-label="ระดับ">
             <button type="button" data-sev="all" class="on">ทั้งหมด</button>
             <button type="button" data-sev="error">ผิดพลาด</button>
             <button type="button" data-sev="warning">เตือน</button>
           </div>
-          <select id="typeFilter" aria-label="ประเภท"></select>
-          <input type="search" id="search" placeholder="ค้นหา เช่น KH1 หรือ 24.C4">
+          <label class="check"><input type="checkbox" id="hideDone"> ซ่อนที่แก้แล้ว</label>
+          <div class="search">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg>
+            <input type="search" id="search" placeholder="ค้นหา เช่น KH1 หรือ 24.C4" aria-label="ค้นหา">
+          </div>
+          <label class="group-by">จัดกลุ่มตาม
+            <select id="groupBy">
+              <option value="sheet">SHEET</option>
+              <option value="type">ประเภทปัญหา</option>
+            </select>
+          </label>
         </div>
-        <ol class="findings" id="findings"></ol>
+
+        <div class="findings" id="findings"></div>
       </aside>
+
       <section class="viewer">
         <div class="viewer-bar">
-          <select id="pageSelect" aria-label="หน้า"></select>
-          <div class="zoom">
-            <button type="button" id="zoomOut" aria-label="ย่อ">−</button>
+          <div class="nav-group">
+            <button type="button" class="icon-btn" id="prevPage" aria-label="หน้าก่อนหน้า" title="หน้าก่อนหน้า"><svg viewBox="0 0 20 20"><path d="m12 5-5 5 5 5"/></svg></button>
+            <select id="pageSelect" aria-label="หน้า"></select>
+            <button type="button" class="icon-btn" id="nextPage" aria-label="หน้าถัดไป" title="หน้าถัดไป"><svg viewBox="0 0 20 20"><path d="m8 5 5 5-5 5"/></svg></button>
+          </div>
+          <div class="nav-group">
+            <button type="button" class="btn small" id="prevFinding" title="รายการก่อนหน้า (K)">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5"/></svg>ก่อนหน้า</button>
+            <span class="pos" id="findingPos"></span>
+            <button type="button" class="btn small" id="nextFinding" title="รายการถัดไป (J)">ถัดไป
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></button>
+          </div>
+          <div class="nav-group zoom">
+            <button type="button" class="icon-btn" id="zoomOut" aria-label="ย่อ" title="ย่อ"><svg viewBox="0 0 20 20"><path d="M5 10h10"/></svg></button>
             <span id="zoomText">100%</span>
-            <button type="button" id="zoomIn" aria-label="ขยาย">+</button>
-            <button type="button" id="zoomFit">พอดีจอ</button>
+            <button type="button" class="icon-btn" id="zoomIn" aria-label="ขยาย" title="ขยาย"><svg viewBox="0 0 20 20"><path d="M5 10h10M10 5v10"/></svg></button>
+            <button type="button" class="btn small" id="zoomFit">พอดีจอ</button>
           </div>
         </div>
         <div class="current" id="current" hidden></div>
@@ -235,12 +504,18 @@ input[type=search] { flex: 1 1 140px; }
             <svg id="overlay"></svg>
           </div>
         </div>
+        <div class="legend">
+          <span><i class="sw error"></i>ผิดพลาด</span>
+          <span><i class="sw warning"></i>เตือน</span>
+          <span><i class="sw other"></i>รายการอื่นในหน้านี้ (คลิกเพื่อเลือก)</span>
+          <span class="keys">ลากเพื่อเลื่อนแบบ · Ctrl + ล้อเมาส์ เพื่อซูม · <kbd>J</kbd> / <kbd>K</kbd> รายการถัดไป / ก่อนหน้า · <kbd>Space</kbd> ทำเครื่องหมายว่าแก้แล้ว</span>
+        </div>
       </section>
     </section>
   </main>
-  <div class="toast" id="toast" hidden></div>
+  <div class="toast" id="toast" role="status" hidden></div>
   <!-- pdf.js and pdf-lib are bundled with the page (base64, decoded by ui.js): nothing is loaded from other sites -->
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdfjs" data-file="PdfJs1" data-part="1" data-parts="2" data-len="405500">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdfjs" data-file="PdfJs1" data-part="1" data-parts="2" data-len="405500">
 LyoqCiAqIEBsaWNzdGFydCBUaGUgZm9sbG93aW5nIGlzIHRoZSBlbnRpcmUgbGljZW5zZSBub3RpY2UgZm9yIHRoZQogKiBKYXZh
 U2NyaXB0IGNvZGUgaW4gdGhpcyBwYWdlCiAqCiAqIENvcHlyaWdodCAyMDIzIE1vemlsbGEgRm91bmRhdGlvbgogKgogKiBMaWNl
 bnNlZCB1bmRlciB0aGUgQXBhY2hlIExpY2Vuc2UsIFZlcnNpb24gMi4wICh0aGUgIkxpY2Vuc2UiKTsKICogeW91IG1heSBub3Qg
@@ -4298,7 +4573,7 @@ dHVybiB0aGlzLmRpdjtsZXQgdCxlO2lmKHRoaXMud2lkdGgpe3Q9dGhpcy54O2U9dGhpcy55fXN1cGVy
 b3RhdGlvbkVkaXRvci5fbDEwblByb21pc2UuZ2V0KCJlZGl0b3JfaW5rMl9hcmlhX2xhYmVsIikudGhlbigodD0+dGhpcy5kaXY/
 </script>
 
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdfjs" data-file="PdfJs2" data-part="2" data-parts="2" data-len="21172">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdfjs" data-file="PdfJs2" data-part="2" data-parts="2" data-len="21172">
 LnNldEF0dHJpYnV0ZSgiYXJpYS1sYWJlbCIsdCkpKTtjb25zdFtpLHMsYSxyXT10aGlzLiNRaSgpO3RoaXMuc2V0QXQoaSxzLDAs
 MCk7dGhpcy5zZXREaW1zKGEscik7dGhpcy4jS2koKTtpZih0aGlzLndpZHRoKXtjb25zdFtpLHNdPXRoaXMucGFyZW50RGltZW5z
 aW9uczt0aGlzLnNldEFzcGVjdFJhdGlvKHRoaXMud2lkdGgqaSx0aGlzLmhlaWdodCpzKTt0aGlzLnNldEF0KHQqaSxlKnMsdGhp
@@ -4513,7 +4788,7 @@ X3JlcXVpcmVfXyg1KSxvPV9fd19wZGZqc19yZXF1aXJlX18oMjkpLGw9X193X3BkZmpzX3JlcXVpcmVf
 anNfcmVxdWlyZV9fKDMyKX0pKCk7cmV0dXJuIF9fd2VicGFja19leHBvcnRzX199KSgpKSk7
 </script>
 
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdfjs-worker" data-file="PdfWorker1" data-part="1" data-parts="4" data-len="405500">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdfjs-worker" data-file="PdfWorker1" data-part="1" data-parts="4" data-len="405500">
 LyoqCiAqIEBsaWNzdGFydCBUaGUgZm9sbG93aW5nIGlzIHRoZSBlbnRpcmUgbGljZW5zZSBub3RpY2UgZm9yIHRoZQogKiBKYXZh
 U2NyaXB0IGNvZGUgaW4gdGhpcyBwYWdlCiAqCiAqIENvcHlyaWdodCAyMDIzIE1vemlsbGEgRm91bmRhdGlvbgogKgogKiBMaWNl
 bnNlZCB1bmRlciB0aGUgQXBhY2hlIExpY2Vuc2UsIFZlcnNpb24gMi4wICh0aGUgIkxpY2Vuc2UiKTsKICogeW91IG1heSBub3Qg
@@ -8571,7 +8846,7 @@ bn1mdW5jdGlvbiBnZXRCbG9ja0J1ZmZlck9mZnNldChlLHQsYSl7cmV0dXJuIDY0KigoZS5ibG9ja3NQ
 ZnVuY3Rpb24gZGVjb2RlU2NhbihlLHQsYSxuLG8sYyxsLGgsdSxkPSExKXtjb25zdCBmPWEubWN1c1BlckxpbmUsZz1hLnByb2dy
 </script>
 
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdfjs-worker" data-file="PdfWorker2" data-part="2" data-parts="4" data-len="405500">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdfjs-worker" data-file="PdfWorker2" data-part="2" data-parts="4" data-len="405500">
 ZXNzaXZlLHA9dDtsZXQgbT0wLGI9MDtmdW5jdGlvbiByZWFkQml0KCl7aWYoYj4wKXtiLS07cmV0dXJuIG0+PmImMX1tPWVbdCsr
 XTtpZigyNTU9PT1tKXtjb25zdCByPWVbdCsrXTtpZihyKXtpZigyMjA9PT1yJiZkKXt0Kz0yO2NvbnN0IHI9KDAsaS5yZWFkVWlu
 dDE2KShlLHQpO3QrPTI7aWYocj4wJiZyIT09YS5zY2FuTGluZXMpdGhyb3cgbmV3IEROTE1hcmtlckVycm9yKCJGb3VuZCBETkwg
@@ -12629,7 +12904,7 @@ Q29vcmRpbmF0ZXM6dCx5Q29vcmRpbmF0ZXM6YX0pe3RoaXMueENvb3JkaW5hdGVzPXQ7dGhpcy55Q29v
 LmZsYWdzPWV9fWNsYXNzIFNpbXBsZUdseXBoe2NvbnN0cnVjdG9yKHtjb250b3VyczplLGluc3RydWN0aW9uczp0fSl7dGhpcy5j
 </script>
 
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdfjs-worker" data-file="PdfWorker3" data-part="3" data-parts="4" data-len="405500">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdfjs-worker" data-file="PdfWorker3" data-part="3" data-parts="4" data-len="405500">
 b250b3Vycz1lO3RoaXMuaW5zdHJ1Y3Rpb25zPXR9c3RhdGljIHBhcnNlKGUsdCxhKXtjb25zdCByPVtdO2ZvcihsZXQgbj0wO248
 YTtuKyspe2NvbnN0IGE9dC5nZXRVaW50MTYoZSk7ZSs9MjtyLnB1c2goYSl9Y29uc3Qgbj1yW2EtMV0rMSxpPXQuZ2V0VWludDE2
 KGUpO2UrPTI7Y29uc3Qgcz1uZXcgVWludDhBcnJheSh0KS5zbGljZShlLGUraSk7ZSs9aTtjb25zdCBvPVtdO2ZvcihsZXQgYT0w
@@ -16687,7 +16962,7 @@ ZXk9ZS5hY2Nlc3NLZXl8fCIiO3RoaXMuYW5jaG9yVHlwZT0oMCxjLmdldFN0cmluZ09wdGlvbikoZS5h
 TGVmdCIsImJvdHRvbUNlbnRlciIsImJvdHRvbUxlZnQiLCJib3R0b21SaWdodCIsIm1pZGRsZUNlbnRlciIsIm1pZGRsZUxlZnQi
 </script>
 
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdfjs-worker" data-file="PdfWorker4" data-part="4" data-parts="4" data-len="233116">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdfjs-worker" data-file="PdfWorker4" data-part="4" data-parts="4" data-len="233116">
 LCJtaWRkbGVSaWdodCIsInRvcENlbnRlciIsInRvcFJpZ2h0Il0pO3RoaXMuY29sU3Bhbj0oMCxjLmdldEludGVnZXIpKHtkYXRh
 OmUuY29sU3BhbixkZWZhdWx0VmFsdWU6MSx2YWxpZGF0ZTplPT5lPj0xfHwtMT09PWV9KTt0aGlzLmg9ZS5oPygwLGMuZ2V0TWVh
 c3VyZW1lbnQpKGUuaCk6IiI7dGhpcy5oQWxpZ249KDAsYy5nZXRTdHJpbmdPcHRpb24pKGUuaEFsaWduLFsibGVmdCIsImNlbnRl
@@ -19022,7 +19297,7 @@ aW9uKCl7cmV0dXJuIHQuV29ya2VyTWVzc2FnZUhhbmRsZXJ9fSk7dmFyIHQ9X193X3BkZmpzX3JlcXVp
 dXJuIGF9KSgpKSk7
 </script>
 
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdflib" data-file="PdfLib1" data-part="1" data-parts="2" data-len="405500">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdflib" data-file="PdfLib1" data-part="1" data-parts="2" data-len="405500">
 IWZ1bmN0aW9uKHQsZSl7Im9iamVjdCI9PXR5cGVvZiBleHBvcnRzJiYidW5kZWZpbmVkIiE9dHlwZW9mIG1vZHVsZT9lKGV4cG9y
 dHMpOiJmdW5jdGlvbiI9PXR5cGVvZiBkZWZpbmUmJmRlZmluZS5hbWQ/ZGVmaW5lKFsiZXhwb3J0cyJdLGUpOmUoKHQ9dHx8c2Vs
 ZikuUERGTGliPXt9KX0odGhpcywoZnVuY3Rpb24odCl7InVzZSBzdHJpY3QiOwovKiEgKioqKioqKioqKioqKioqKioqKioqKioq
@@ -23080,7 +23355,7 @@ PTJ8fHIubGV2ZWw8Mj8wOnIubGV2ZWw8Nj8xOjY9PT1yLmxldmVsPzI6Myk8PDYsMCE9PXIuc3Ryc3Rh
 MzEtYSUzMSxyLnN0YXR1cz0xMTMsZXMocixhKSwwIT09ci5zdHJzdGFydCYmKGVzKHIsdC5hZGxlcj4+PjE2KSxlcyhyLDY1NTM1
 </script>
 
-  <script type="text/plain" class="sc-lib" data-version="ebe57bfa" data-lib="pdflib" data-file="PdfLib2" data-part="2" data-parts="2" data-len="294632">
+  <script type="text/plain" class="sc-lib" data-version="a7234d36" data-lib="pdflib" data-file="PdfLib2" data-part="2" data-parts="2" data-len="294632">
 JnQuYWRsZXIpKSx0LmFkbGVyPTF9aWYoNjk9PT1yLnN0YXR1cylpZihyLmd6aGVhZC5leHRyYSl7Zm9yKGk9ci5wZW5kaW5nO3Iu
 Z3ppbmRleDwoNjU1MzUmci5nemhlYWQuZXh0cmEubGVuZ3RoKSYmKHIucGVuZGluZyE9PXIucGVuZGluZ19idWZfc2l6ZXx8KHIu
 Z3poZWFkLmhjcmMmJnIucGVuZGluZz5pJiYodC5hZGxlcj1fYSh0LmFkbGVyLHIucGVuZGluZ19idWYsci5wZW5kaW5nLWksaSkp
@@ -27664,7 +27939,7 @@ Z1VSTD1wZGYtbGliLm1pbi5qcy5tYXAK
   SC.runCheck = runCheck;
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));
 
-;(window.SC_FILES = window.SC_FILES || {})["Core"] = "ebe57bfa";
+;(window.SC_FILES = window.SC_FILES || {})["Core"] = "a7234d36";
 </script>
 
   <script>
@@ -34783,7 +35058,7 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
 ["-",0,[[0,0,100,0]]],
 ["-",0,[[100,0,0,0]]]];
 
-;(window.SC_FILES = window.SC_FILES || {})["Glyphs"] = "ebe57bfa";
+;(window.SC_FILES = window.SC_FILES || {})["Glyphs"] = "a7234d36";
 </script>
 
   <script>
@@ -34792,26 +35067,36 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
   "use strict";
 
   const $ = (id) => document.getElementById(id);
+  // problem types, in the order they are listed when grouped by type
   const TYPE_LABEL = {
-    COIL_TABLE_ZONE: "ตารางใต้ coil: ตำแหน่ง contact ไม่ตรง",
-    COIL_TABLE_MISSING: "ตารางใต้ coil: ไม่พบ contact",
-    XREF_SHEET_MISSING: "อ้างถึง SHEET ที่ไม่มี",
-    BACKREF_ZONE: "contact: ตำแหน่ง coil ไม่ตรง",
-    BACKREF_NOT_FOUND: "contact: ไม่พบอุปกรณ์ที่อ้างถึง",
-    BACKREF_SHEET_MISSING: "contact: อ้างถึง SHEET ที่ไม่มี",
+    COIL_TABLE_ZONE: "ตำแหน่ง contact ในตารางไม่ตรง",
+    COIL_TABLE_MISSING: "ไม่พบ contact ตามตาราง",
+    XREF_SHEET_MISSING: "ตารางอ้างถึง SHEET ที่ไม่มี",
+    BACKREF_ZONE: "ตำแหน่ง coil ที่ contact อ้างถึงไม่ตรง",
+    BACKREF_NOT_FOUND: "ไม่พบอุปกรณ์ที่ contact อ้างถึง",
+    BACKREF_SHEET_MISSING: "contact อ้างถึง SHEET ที่ไม่มี",
     CONTACT_NOT_LISTED: "contact ไม่อยู่ในตารางใต้ coil",
-    BOM_NOT_ON_SHEET: "BOM: SHEET ไม่ตรง",
-    BOM_NOT_FOUND: "BOM: ไม่พบอุปกรณ์",
-    BOM_SHEET_MISSING: "BOM: SHEET ที่ไม่มี",
-    BOM_SHEET_UNUSED: "BOM: SHEET ไม่มีอุปกรณ์ในแถว",
-    NOT_IN_BOM: "ไม่มีใน BOM",
+    BOM_NOT_ON_SHEET: "อุปกรณ์ไม่อยู่ใน SHEET ที่ BOM ระบุ",
+    BOM_NOT_FOUND: "ไม่พบอุปกรณ์ใน BOM ในแบบ",
+    BOM_SHEET_MISSING: "BOM อ้างถึง SHEET ที่ไม่มี",
+    BOM_SHEET_UNUSED: "SHEET ใน BOM ไม่มีอุปกรณ์ในแถว",
+    NOT_IN_BOM: "coil ไม่มีใน BOM",
   };
+  const CATS = [
+    { id: "coil", short: "ตาราง coil", label: "ตาราง contact ใต้ coil",
+      codes: ["COIL_TABLE_ZONE", "COIL_TABLE_MISSING", "XREF_SHEET_MISSING"] },
+    { id: "contact", short: "contact → coil", label: "ตำแหน่ง coil ที่ contact อ้างถึง",
+      codes: ["BACKREF_ZONE", "BACKREF_NOT_FOUND", "BACKREF_SHEET_MISSING", "CONTACT_NOT_LISTED"] },
+    { id: "bom", short: "BOM", label: "Bill of Material",
+      codes: ["BOM_NOT_ON_SHEET", "BOM_NOT_FOUND", "BOM_SHEET_MISSING", "BOM_SHEET_UNUSED", "NOT_IN_BOM"] },
+  ];
   const MAX_CANVAS_PIXELS = 16e6;
   const inAppsScript = typeof google !== "undefined" && google.script && google.script.run;
 
   const state = {
     bytes: null, fileName: "", pdf: null, report: null, lib: null,
-    sev: "all", type: "all", query: "", selected: null,
+    sev: "all", cat: "all", query: "", hideDone: false, groupBy: "sheet", visible: [],
+    selected: null, markIndex: 0, done: new Set(),
     page: 0, scale: 1, fitted: false, renderTask: null, renderSeq: 0,
   };
 
@@ -34843,7 +35128,7 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
     document.head.appendChild(s);
   }
 
-  const VERSION = "ebe57bfa";
+  const VERSION = "a7234d36";
   const VERSIONED = ["Index", "Core", "Glyphs", "PdfJs*", "PdfWorker*", "PdfLib*"];
 
   /** Project files whose build version differs from this Ui file (left over from an update). */
@@ -34889,25 +35174,36 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => e.dataTransfer.files[0] && start(e.dataTransfer.files[0]));
-  $("newCheck").addEventListener("click", () => location.reload());
+  $("newCheck").addEventListener("click", () => {
+    if (!state.report || confirm("เริ่มตรวจไฟล์ใหม่? ผลตรวจที่แสดงอยู่จะถูกปิด (เครื่องหมาย \"แก้แล้ว\" ยังจำไว้สำหรับไฟล์นี้)")) location.reload();
+  });
 
   function showError(msg) {
-    $("uploadError").textContent = msg;
+    $("uploadError").innerHTML = `<b>ตรวจสอบไม่สำเร็จ</b>${esc(msg)}`;
     $("uploadError").hidden = false;
     $("progress").hidden = true;
+    drop.hidden = false;
   }
 
-  function setProgress(text, done, total) {
+  function setProgress(stage, text, done, total) {
     $("progressText").textContent = text;
     $("progressCount").textContent = total > 1 ? `${done} / ${total} หน้า` : "";
-    $("progressFill").style.width = `${total ? (100 * done) / total : 0}%`;
+    const base = [0, 4, 8, 100][stage];
+    const pct = stage === 2 && total ? 8 + (92 * done) / total : base;
+    $("progressFill").style.width = `${pct}%`;
+    document.querySelectorAll("#stages li").forEach((li) => {
+      const k = +li.dataset.stage;
+      li.className = k < stage ? "done" : k === stage ? "now" : "";
+    });
   }
 
   async function start(file) {
     $("uploadError").hidden = true;
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return showError("กรุณาเลือกไฟล์ PDF");
+    drop.hidden = true;
     $("progress").hidden = false;
-    setProgress("กำลังเปิดไฟล์…", 0, 1);
+    $("progressFile").textContent = file.name;
+    setProgress(0, "กำลังเปิดไฟล์…", 0, 1);
     try {
       await ready;
       state.fileName = file.name;
@@ -34915,131 +35211,351 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
       // pdf.js takes ownership of the buffer it is given, so hand it a copy
       state.pdf = await pdfjsLib.getDocument({ data: state.bytes.slice(), isEvalSupported: false }).promise;
       if (!state.lib) {
-        setProgress("กำลังเตรียมคลังตัวอักษร…", 0, 1);
+        setProgress(1, "กำลังเตรียมคลังตัวอักษร…", 0, 1);
         await tick();
         state.lib = new SC.TemplateLibrary(SC_GLYPHS);
       }
       const t0 = performance.now();
+      setProgress(2, "กำลังอ่านแบบ…", 0, state.pdf.numPages);
       const report = await SC.runCheck(state.pdf, state.lib, pdfjsLib.OPS, (done, total) => {
         const eta = done ? ((performance.now() - t0) / done) * (total - done) / 1000 : 0;
-        setProgress(`กำลังอ่านแบบและตรวจสอบ… ${done < total ? `(เหลืออีกประมาณ ${Math.ceil(eta)} วินาที)` : ""}`, done, total);
+        setProgress(done < total ? 2 : 3, done < total ? `กำลังอ่านแบบ… เหลืออีกประมาณ ${Math.ceil(eta)} วินาที` : "กำลังสรุปผล…", done, total);
       });
       report.file_name = file.name;
       report.elapsed = ((performance.now() - t0) / 1000).toFixed(1);
       showReport(report);
     } catch (e) {
       console.error(e);
-      showError(`ตรวจสอบไม่สำเร็จ: ${e && e.message ? e.message : e}`);
+      showError(e && e.message ? e.message : String(e));
     }
   }
 
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
+  // ------------------------------------------------------------------ "fixed" ticks, remembered per file
+  const doneKey = () => `sc-done:${state.fileName}:${state.bytes.length}`;
+  const fKey = (f) => `${f.code}|${f.page}|${f.message}`;
+  function loadDone() {
+    try { return new Set(JSON.parse(localStorage.getItem(doneKey()) || "[]")); } catch (e) { return new Set(); }
+  }
+  function saveDone() {
+    try { localStorage.setItem(doneKey(), JSON.stringify([...state.done])); } catch (e) { /* storage unavailable: keep for this visit only */ }
+  }
+  const isDone = (f) => state.done.has(fKey(f));
+  function toggleDone(n, value) {
+    const f = state.report.findings[n - 1];
+    const on = value === undefined ? !isDone(f) : value;
+    if (on) state.done.add(fKey(f)); else state.done.delete(fKey(f));
+    saveDone();
+    renderSummary();
+    renderList();
+    if (state.selected === n) renderCurrent();
+    drawMarks();
+  }
+
   // ------------------------------------------------------------------ report
+  const catOf = (code) => CATS.find((c) => c.codes.includes(code)) || CATS[0];
+  const sheetLabel = (page) => {
+    const p = state.report.pages[page];
+    return p && p.sheet !== null ? `SHEET ${pad(p.sheet)}` : "";
+  };
+  const locLabel = (page) => `หน้า ${page + 1}${sheetLabel(page) ? ` · ${sheetLabel(page)}` : ""}`;
+
   function showReport(report) {
     state.report = report;
+    state.done = loadDone();
     report.findings.forEach((f, i) => (f.n = i + 1));
     $("uploadView").hidden = true;
     $("resultView").hidden = false;
     $("exportActions").hidden = false;
-
-    const s = report.stats;
-    $("summary").innerHTML = `
-      <div class="stat err"><div class="n">${s.errors}</div><div class="l">ผิดพลาด</div></div>
-      <div class="stat warn"><div class="n">${s.warnings}</div><div class="l">เตือน</div></div>
-      <div class="stat"><div class="n">${s.pages}</div><div class="l">หน้า</div></div>
-      <div class="stat"><div class="n">${s.coils}</div><div class="l">coil (${s.contact_rows} contact)</div></div>
-      <div class="stat"><div class="n">${s.contacts}</div><div class="l">contact ที่อ้าง coil</div></div>
-      <div class="stat"><div class="n">${s.bom_designations}</div><div class="l">อุปกรณ์ใน BOM</div></div>
-      <div class="file-line" title="${esc(report.file_name)}">${esc(report.file_name)} · ใช้เวลา ${report.elapsed} วินาที</div>`;
-
-    const types = [...new Set(report.findings.map((f) => f.code))];
-    $("typeFilter").innerHTML = `<option value="all">ทุกประเภท</option>` +
-      types.map((t) => `<option value="${t}">${esc(TYPE_LABEL[t] || t)}</option>`).join("");
+    document.body.dataset.view = "result";
+    $("fileChip").textContent = report.file_name;
+    $("fileChip").title = report.file_name;
 
     $("pageSelect").innerHTML = report.pages.map((p) => {
       const n = report.findings.filter((f) => f.marks.some((m) => m.page === p.index)).length;
-      const label = p.sheet !== null ? `หน้า ${p.index + 1} · SHEET ${pad(p.sheet)}` : `หน้า ${p.index + 1}`;
-      return `<option value="${p.index}">${label}${n ? ` (${n})` : ""}</option>`;
+      const kind = p.kind === "bom" ? " · BOM" : "";
+      return `<option value="${p.index}">${esc(locLabel(p.index))}${kind}${n ? ` · ${n} รายการ` : ""}</option>`;
     }).join("");
 
+    renderSummary();
+    renderTabs();
     renderList();
-    const first = filtered()[0];
+    const first = visible()[0];
     if (first) select(first.n); else showPage(0);
   }
 
-  function filtered() {
+  function renderSummary() {
+    const r = state.report, s = r.stats;
+    const total = r.findings.length;
+    const fixed = r.findings.filter(isDone).length;
+    const big = total
+      ? `<div class="stat-big err"><div class="n">${s.errors}</div><div class="l">ผิดพลาด</div></div>
+         <div class="stat-big warn"><div class="n">${s.warnings}</div><div class="l">เตือน</div></div>
+         <div class="review">
+           <div class="review-label"><span>แก้แล้ว</span><b>${fixed} / ${total}</b></div>
+           <div class="bar"><div class="fill" style="width:${(100 * fixed) / total}%"></div></div>
+         </div>`
+      : `<div class="stat-big ok"><div class="n">0</div><div class="l">ไม่พบจุดที่ต้องแก้ไข</div></div>`;
+    $("summary").innerHTML = `<div class="summary-top">${big}</div>
+      <p class="stat-line"><b>${s.pages}</b> หน้า · <b>${s.coils}</b> coil (${s.contact_rows} contact) ·
+        <b>${s.contacts}</b> contact ที่อ้าง coil · <b>${s.bom_designations}</b> อุปกรณ์ใน BOM · ${r.elapsed} วินาที</p>`;
+  }
+
+  function renderTabs() {
+    const all = state.report.findings;
+    const tab = (id, label, color, n) =>
+      `<button type="button" class="tab${state.cat === id ? " on" : ""}" data-cat="${id}">` +
+      `${color ? `<span class="dot" style="background:${color}"></span>` : ""}${esc(label)}<span class="count">${n}</span></button>`;
+    $("catTabs").innerHTML = tab("all", "ทั้งหมด", "", all.length) +
+      CATS.map((c) => tab(c.id, c.short, `var(--cat-${c.id})`, all.filter((f) => c.codes.includes(f.code)).length)).join("");
+  }
+  $("catTabs").addEventListener("click", (e) => {
+    const b = e.target.closest(".tab");
+    if (!b) return;
+    state.cat = b.dataset.cat;
+    renderTabs();
+    renderList();
+  });
+
+  /** Findings that pass the filters, in the order shown (grouped). */
+  function visible() {
     const q = state.query.trim().toUpperCase().replace(/^-/, "");
-    return state.report.findings.filter((f) =>
+    const items = state.report.findings.filter((f) =>
       (state.sev === "all" || f.severity === state.sev) &&
-      (state.type === "all" || f.code === state.type) &&
+      (state.cat === "all" || catOf(f.code).id === state.cat) &&
+      (!state.hideDone || !isDone(f)) &&
       (!q || (f.message + " " + f.fix).toUpperCase().includes(q)));
+    const order = Object.keys(TYPE_LABEL);
+    if (state.groupBy === "type") items.sort((a, b) => order.indexOf(a.code) - order.indexOf(b.code) || a.n - b.n);
+    else items.sort((a, b) => a.page - b.page || a.n - b.n);
+    return items;
+  }
+
+  function groupOf(f) {
+    if (state.groupBy === "type") return { key: f.code, title: TYPE_LABEL[f.code] || f.code, sub: catOf(f.code).short };
+    const p = state.report.pages[f.page];
+    return { key: `p${f.page}`, title: p.sheet !== null ? `SHEET ${pad(p.sheet)}` : `หน้า ${f.page + 1}`, sub: p.sheet !== null ? `หน้า ${f.page + 1} ใน PDF` : "" };
   }
 
   function renderList() {
-    const items = filtered();
+    const items = visible();
+    state.visible = items;
     const el = $("findings");
     if (!items.length) {
-      el.innerHTML = `<li class="empty">${state.report.findings.length ? "ไม่มีรายการตามตัวกรอง" : "ไม่พบจุดที่ต้องแก้ไข ✓"}</li>`;
+      el.innerHTML = state.report.findings.length
+        ? `<div class="empty"><span class="big">ไม่มีรายการตามตัวกรองนี้</span>ลองเลือกหมวด "ทั้งหมด" หรือล้างคำค้นหา</div>`
+        : `<div class="empty good"><span class="big">ไม่พบจุดที่ต้องแก้ไข</span>cross-reference และ BOM ตรงกันทั้งชุด</div>`;
+      updateNav();
       return;
     }
-    el.innerHTML = items.map((f) => `
-      <li class="finding${f.n === state.selected ? " sel" : ""}" data-n="${f.n}">
-        <div class="meta">
-          <span class="badge ${f.severity}">${f.severity === "error" ? "ผิดพลาด" : "เตือน"}</span>
-          <span>#${f.n}</span><span>หน้า ${f.page + 1}${f.sheet !== null ? ` · SHEET ${pad(f.sheet)}` : ""}</span>
-          <span>${esc(TYPE_LABEL[f.code] || f.code)}</span>
+    const counts = new Map();
+    for (const f of items) { const k = groupOf(f).key; counts.set(k, (counts.get(k) || 0) + 1); }
+    let html = "", last = null;
+    for (const f of items) {
+      const g = groupOf(f);
+      if (g.key !== last) {
+        html += `<div class="group-head"><span><b>${esc(g.title)}</b>${g.sub ? ` · ${esc(g.sub)}` : ""}</span><span>${counts.get(g.key)} รายการ</span></div>`;
+        last = g.key;
+      }
+      html += findingHtml(f);
+    }
+    el.innerHTML = html;
+    updateNav();
+  }
+
+  function findingHtml(f) {
+    const done = isDone(f);
+    const cat = catOf(f.code);
+    const pages = [...new Set(f.marks.map((m) => m.page))];
+    return `
+      <article class="finding ${f.severity}${done ? " done" : ""}${f.n === state.selected ? " sel" : ""}" data-n="${f.n}" tabindex="0">
+        <div class="f-head">
+          <span class="badge ${done ? "done" : f.severity}">${done ? "แก้แล้ว" : f.severity === "error" ? "ผิดพลาด" : "เตือน"}</span>
+          <span class="f-type" title="${esc(cat.label)}">${esc(TYPE_LABEL[f.code] || f.code)}</span>
+          <span class="f-n">#${f.n}</span>
         </div>
         <div class="msg">${esc(f.message)}</div>
-        <div class="fix">→ ${esc(f.fix)}</div>
-      </li>`).join("");
+        <div class="fix-box"><span class="k">วิธีแก้</span><span>${esc(f.fix)}</span></div>
+        <div class="f-foot">
+          ${pages.map((pg) => `<button type="button" class="loc" data-page="${pg}">${esc(locLabel(pg))}</button>`).join("")}
+          <label class="done-toggle"><input type="checkbox" data-done="${f.n}"${done ? " checked" : ""}> แก้แล้ว</label>
+        </div>
+      </article>`;
   }
 
   $("findings").addEventListener("click", (e) => {
-    const li = e.target.closest(".finding");
-    if (li) select(+li.dataset.n);
+    if (e.target.closest(".done-toggle")) return;
+    const card = e.target.closest(".finding");
+    if (!card) return;
+    const n = +card.dataset.n;
+    const loc = e.target.closest(".loc");
+    if (loc) {
+      const f = state.report.findings[n - 1];
+      return select(n, Math.max(0, f.marks.findIndex((m) => m.page === +loc.dataset.page)));
+    }
+    select(n);
+  });
+  $("findings").addEventListener("change", (e) => {
+    if (e.target.dataset.done) toggleDone(+e.target.dataset.done, e.target.checked);
+  });
+  $("findings").addEventListener("keydown", (e) => {
+    const card = e.target.closest(".finding");
+    if (card && e.key === "Enter") select(+card.dataset.n);
   });
   document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === b));
     state.sev = b.dataset.sev;
     renderList();
   }));
-  $("typeFilter").addEventListener("change", (e) => { state.type = e.target.value; renderList(); });
+  $("hideDone").addEventListener("change", (e) => { state.hideDone = e.target.checked; renderList(); });
+  $("groupBy").addEventListener("change", (e) => { state.groupBy = e.target.value; renderList(); });
   $("search").addEventListener("input", (e) => { state.query = e.target.value; renderList(); });
+
+  function resetFilters() {
+    Object.assign(state, { cat: "all", sev: "all", query: "", hideDone: false });
+    document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.sev === "all"));
+    $("search").value = "";
+    $("hideDone").checked = false;
+    renderTabs();
+    renderList();
+    toast("ล้างตัวกรองแล้ว เพื่อแสดงรายการที่เลือก");
+  }
 
   function select(n, markIndex = 0) {
     state.selected = n;
+    if (!state.visible.some((f) => f.n === n)) resetFilters();
+    state.markIndex = markIndex;
     const f = state.report.findings[n - 1];
-    document.querySelectorAll(".finding").forEach((li) => li.classList.toggle("sel", +li.dataset.n === n));
+    document.querySelectorAll(".finding").forEach((el) => el.classList.toggle("sel", +el.dataset.n === n));
+    const card = document.querySelector(`.finding[data-n="${n}"]`);
+    if (card) card.scrollIntoView({ block: "nearest" });
+    renderCurrent();
+    updateNav();
     const m = f.marks[markIndex] || f.marks[0];
-    const cur = $("current");
-    cur.hidden = false;
-    cur.className = `current ${f.severity}`;
-    const others = f.marks.length > 1
-      ? ` · ตำแหน่งที่เกี่ยวข้อง: ${f.marks.map((mk, i) => `<a href="#" data-mi="${i}">หน้า ${mk.page + 1}</a>`).join(", ")}`
-      : "";
-    cur.innerHTML = `<b>#${f.n}</b> ${esc(f.message)} <span class="fix">→ ${esc(f.fix)}</span>${others}`;
-    cur.querySelectorAll("a[data-mi]").forEach((a) => a.addEventListener("click", (e) => {
-      e.preventDefault();
-      select(n, +a.dataset.mi);
-    }));
     showPage(m ? m.page : f.page, m);
   }
 
+  function renderCurrent() {
+    const f = state.report.findings[state.selected - 1];
+    const cur = $("current");
+    if (!f) { cur.hidden = true; return; }
+    const done = isDone(f);
+    cur.hidden = false;
+    cur.className = `current ${f.severity}`;
+    const locs = f.marks.length > 1
+      ? `<div class="c-locs">ตำแหน่งที่เกี่ยวข้อง: ${f.marks.map((m, i) =>
+        `<button type="button" class="loc${i === state.markIndex ? " here" : ""}" data-mi="${i}">${esc(locLabel(m.page))}</button>`).join("")}</div>`
+      : "";
+    cur.innerHTML = `
+      <span class="badge ${done ? "done" : f.severity}">#${f.n}</span>
+      <div class="c-body">
+        <div class="c-msg">${esc(f.message)}</div>
+        <div class="c-fix"><b>วิธีแก้</b> ${esc(f.fix)}</div>
+        ${locs}
+      </div>
+      <label class="done-toggle"><input type="checkbox" id="curDone"${done ? " checked" : ""}> แก้แล้ว</label>`;
+    cur.querySelectorAll("[data-mi]").forEach((b) => b.addEventListener("click", () => select(f.n, +b.dataset.mi)));
+    $("curDone").addEventListener("change", (e) => toggleDone(f.n, e.target.checked));
+  }
+
+  function step(dir) {
+    const items = state.visible || [];
+    if (!items.length) return;
+    const i = items.findIndex((f) => f.n === state.selected);
+    const j = i < 0 ? 0 : Math.max(0, Math.min(items.length - 1, i + dir));
+    select(items[j].n);
+  }
+
+  function updateNav() {
+    const items = state.visible || [];
+    const i = items.findIndex((f) => f.n === state.selected);
+    $("findingPos").textContent = items.length ? `${i < 0 ? "–" : i + 1} / ${items.length}` : "0 / 0";
+    $("prevFinding").disabled = !items.length || i === 0;
+    $("nextFinding").disabled = !items.length || i === items.length - 1;
+    if (state.report) {
+      $("prevPage").disabled = state.page <= 0;
+      $("nextPage").disabled = state.page >= state.report.pages.length - 1;
+    }
+  }
+
+  $("prevFinding").addEventListener("click", () => step(-1));
+  $("nextFinding").addEventListener("click", () => step(1));
+
+  document.addEventListener("keydown", (e) => {
+    if (!state.report || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    const k = e.key.toLowerCase();
+    if (k === "j") { e.preventDefault(); step(1); }
+    else if (k === "k") { e.preventDefault(); step(-1); }
+    else if (e.key === " " && state.selected) { e.preventDefault(); toggleDone(state.selected); }
+    else if (e.key === "Escape") closeMenu();
+  });
+
+  // ------------------------------------------------------------------ export menu
+  function closeMenu() { $("moreList").hidden = true; $("moreBtn").setAttribute("aria-expanded", "false"); }
+  $("moreBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = $("moreList").hidden;
+    $("moreList").hidden = !open;
+    $("moreBtn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#moreMenu")) closeMenu(); });
+  $("moreList").addEventListener("click", () => closeMenu());
+
   // ------------------------------------------------------------------ viewer
   $("pageSelect").addEventListener("change", (e) => showPage(+e.target.value));
+  $("prevPage").addEventListener("click", () => showPage(Math.max(0, state.page - 1)));
+  $("nextPage").addEventListener("click", () => showPage(Math.min(state.report.pages.length - 1, state.page + 1)));
   $("zoomIn").addEventListener("click", () => setScale(state.scale * 1.25));
   $("zoomOut").addEventListener("click", () => setScale(state.scale / 1.25));
   $("zoomFit").addEventListener("click", () => fit());
+
+  // clicking a box on the sheet selects its finding
+  $("overlay").addEventListener("click", (e) => {
+    const r = e.target.closest(".mark");
+    if (r) select(+r.dataset.n, +r.dataset.mi);
+  });
+
+  // drag to pan, Ctrl + wheel to zoom around the pointer
+  const cv = $("canvas");
+  let pan = null;
+  cv.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".mark")) return;
+    pan = { x: e.clientX, y: e.clientY, l: cv.scrollLeft, t: cv.scrollTop, id: e.pointerId, moved: false };
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!pan || e.pointerId !== pan.id) return;
+    const dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+    if (!pan.moved && Math.hypot(dx, dy) < 4) return;
+    if (!pan.moved) { pan.moved = true; cv.classList.add("panning"); cv.setPointerCapture(e.pointerId); }
+    cv.scrollLeft = pan.l - dx;
+    cv.scrollTop = pan.t - dy;
+  });
+  const endPan = () => { pan = null; cv.classList.remove("panning"); };
+  cv.addEventListener("pointerup", endPan);
+  cv.addEventListener("pointercancel", endPan);
+  cv.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey || !state.report) return;
+    e.preventDefault();
+    const rect = cv.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const px = (cv.scrollLeft + mx - 16) / state.scale, py = (cv.scrollTop + my - 16) / state.scale;
+    setScale(state.scale * (e.deltaY < 0 ? 1.2 : 1 / 1.2)).then(() => {
+      cv.scrollLeft = px * state.scale + 16 - mx;
+      cv.scrollTop = py * state.scale + 16 - my;
+    });
+  }, { passive: false });
 
   const meta = (i) => state.report.pages[i];
 
   async function showPage(i, focus) {
     state.page = i;
     $("pageSelect").value = String(i);
+    updateNav();
     if (!state.fitted) {
       state.fitted = true;
-      state.scale = ($("canvas").clientWidth - 32) / meta(i).width;
+      state.scale = (cv.clientWidth - 32) / meta(i).width;
     }
     if (focus && state.scale < 1.6) state.scale = 1.8;
     await render();
@@ -35048,12 +35564,12 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
   }
 
   function fit() {
-    setScale(($("canvas").clientWidth - 32) / meta(state.page).width);
+    return setScale((cv.clientWidth - 32) / meta(state.page).width);
   }
 
   function setScale(s) {
     state.scale = Math.max(0.3, Math.min(s, 6));
-    render().then(() => drawMarks());
+    return render().then(() => drawMarks());
   }
 
   async function render() {
@@ -35083,29 +35599,29 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
   }
 
   function drawMarks(focus) {
+    if (!state.report) return;
     const p = meta(state.page);
     const svg = $("overlay");
     svg.setAttribute("viewBox", `0 0 ${p.width} ${p.height}`);
     const sel = state.report.findings[state.selected - 1];
     const others = [], mine = [];
     for (const f of state.report.findings) {
-      for (const m of f.marks) {
-        if (m.page !== state.page) continue;
+      f.marks.forEach((m, mi) => {
+        if (m.page !== state.page) return;
         const [x0, y0, x1, y1] = m.bbox;
         const isSel = f === sel;
-        const cls = `mark ${f.severity}${isSel ? "" : " other"}${focus && m === focus ? " focus" : ""}`;
-        (isSel ? mine : others).push(`<rect class="${cls}" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="1.5" vector-effect="non-scaling-stroke"/>`);
-      }
+        const cls = `mark ${f.severity}${isSel ? "" : " other"}${isDone(f) ? " done" : ""}${focus && m === focus ? " focus" : ""}`;
+        (isSel ? mine : others).push(`<rect class="${cls}" data-n="${f.n}" data-mi="${mi}" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="1.5" vector-effect="non-scaling-stroke"><title>#${f.n} ${esc(f.message)}</title></rect>`);
+      });
     }
     svg.innerHTML = others.concat(mine).join("");
   }
 
   function scrollToMark(m) {
-    const c = $("canvas");
     const [x0, y0, x1, y1] = m.bbox;
-    c.scrollTo({
-      left: ((x0 + x1) / 2) * state.scale - c.clientWidth / 2 + 16,
-      top: ((y0 + y1) / 2) * state.scale - c.clientHeight / 2 + 16,
+    cv.scrollTo({
+      left: ((x0 + x1) / 2) * state.scale - cv.clientWidth / 2 + 16,
+      top: ((y0 + y1) / 2) * state.scale - cv.clientHeight / 2 + 16,
       behavior: "smooth",
     });
   }
@@ -35125,10 +35641,10 @@ var SC_GLYPHS = [["|",0,[[0,100,0,0]]],
   }
 
   function csvRows() {
-    const rows = [["#", "ระดับ", "ประเภท", "หน้า PDF", "SHEET", "รายละเอียด", "สิ่งที่ต้องแก้ไข"]];
+    const rows = [["#", "ระดับ", "หมวด", "ประเภท", "หน้า PDF", "SHEET", "รายละเอียด", "สิ่งที่ต้องแก้ไข", "แก้แล้ว"]];
     for (const f of state.report.findings) {
-      rows.push([f.n, f.severity === "error" ? "ผิดพลาด" : "เตือน", TYPE_LABEL[f.code] || f.code, f.page + 1,
-        f.sheet === null ? "" : f.sheet, f.message, f.fix]);
+      rows.push([f.n, f.severity === "error" ? "ผิดพลาด" : "เตือน", catOf(f.code).label, TYPE_LABEL[f.code] || f.code, f.page + 1,
+        f.sheet === null ? "" : f.sheet, f.message, f.fix, isDone(f) ? "✓" : ""]);
     }
     return rows;
   }

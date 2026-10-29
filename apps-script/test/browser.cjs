@@ -52,10 +52,12 @@ const { chromium } = require(require("child_process").execSync("npm root -g").to
   if (items.length > 5) { await items[5].click(); await p.waitForTimeout(1500); await p.screenshot({ path: path.join(out, "gas_result2.png") }); }
   const [dl] = await Promise.all([p.waitForEvent("download"), p.click("#dlPdf")]);
   await dl.saveAs(path.join(out, "gas_checked.pdf"));
-  const [dl2] = await Promise.all([p.waitForEvent("download"), p.click("#dlCsv")]);
+  // the other exports sit in the "ส่งออกแบบอื่น" menu
+  const menu = async (id) => { await p.click("#moreBtn"); await p.click(id); };
+  const [dl2] = await Promise.all([p.waitForEvent("download"), menu("#dlCsv")]);
   await dl2.saveAs(path.join(out, "gas_report.csv"));
-  await p.click("#toSheet"); await p.waitForTimeout(500);
-  await p.click("#toDrive"); await p.waitForTimeout(3000);
+  await menu("#toSheet"); await p.waitForTimeout(500);
+  await menu("#toDrive"); await p.waitForTimeout(3000);
   console.log("web workers started:", await p.evaluate(() => window.__workers));
   console.log("apps script calls:", JSON.stringify(await p.evaluate(() => window.__gsCalls)));
   await p.screenshot({ path: path.join(out, "gas_toast.png") });

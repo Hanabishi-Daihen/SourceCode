@@ -3,26 +3,36 @@
   "use strict";
 
   const $ = (id) => document.getElementById(id);
+  // problem types, in the order they are listed when grouped by type
   const TYPE_LABEL = {
-    COIL_TABLE_ZONE: "ตารางใต้ coil: ตำแหน่ง contact ไม่ตรง",
-    COIL_TABLE_MISSING: "ตารางใต้ coil: ไม่พบ contact",
-    XREF_SHEET_MISSING: "อ้างถึง SHEET ที่ไม่มี",
-    BACKREF_ZONE: "contact: ตำแหน่ง coil ไม่ตรง",
-    BACKREF_NOT_FOUND: "contact: ไม่พบอุปกรณ์ที่อ้างถึง",
-    BACKREF_SHEET_MISSING: "contact: อ้างถึง SHEET ที่ไม่มี",
+    COIL_TABLE_ZONE: "ตำแหน่ง contact ในตารางไม่ตรง",
+    COIL_TABLE_MISSING: "ไม่พบ contact ตามตาราง",
+    XREF_SHEET_MISSING: "ตารางอ้างถึง SHEET ที่ไม่มี",
+    BACKREF_ZONE: "ตำแหน่ง coil ที่ contact อ้างถึงไม่ตรง",
+    BACKREF_NOT_FOUND: "ไม่พบอุปกรณ์ที่ contact อ้างถึง",
+    BACKREF_SHEET_MISSING: "contact อ้างถึง SHEET ที่ไม่มี",
     CONTACT_NOT_LISTED: "contact ไม่อยู่ในตารางใต้ coil",
-    BOM_NOT_ON_SHEET: "BOM: SHEET ไม่ตรง",
-    BOM_NOT_FOUND: "BOM: ไม่พบอุปกรณ์",
-    BOM_SHEET_MISSING: "BOM: SHEET ที่ไม่มี",
-    BOM_SHEET_UNUSED: "BOM: SHEET ไม่มีอุปกรณ์ในแถว",
-    NOT_IN_BOM: "ไม่มีใน BOM",
+    BOM_NOT_ON_SHEET: "อุปกรณ์ไม่อยู่ใน SHEET ที่ BOM ระบุ",
+    BOM_NOT_FOUND: "ไม่พบอุปกรณ์ใน BOM ในแบบ",
+    BOM_SHEET_MISSING: "BOM อ้างถึง SHEET ที่ไม่มี",
+    BOM_SHEET_UNUSED: "SHEET ใน BOM ไม่มีอุปกรณ์ในแถว",
+    NOT_IN_BOM: "coil ไม่มีใน BOM",
   };
+  const CATS = [
+    { id: "coil", short: "ตาราง coil", label: "ตาราง contact ใต้ coil",
+      codes: ["COIL_TABLE_ZONE", "COIL_TABLE_MISSING", "XREF_SHEET_MISSING"] },
+    { id: "contact", short: "contact → coil", label: "ตำแหน่ง coil ที่ contact อ้างถึง",
+      codes: ["BACKREF_ZONE", "BACKREF_NOT_FOUND", "BACKREF_SHEET_MISSING", "CONTACT_NOT_LISTED"] },
+    { id: "bom", short: "BOM", label: "Bill of Material",
+      codes: ["BOM_NOT_ON_SHEET", "BOM_NOT_FOUND", "BOM_SHEET_MISSING", "BOM_SHEET_UNUSED", "NOT_IN_BOM"] },
+  ];
   const MAX_CANVAS_PIXELS = 16e6;
   const inAppsScript = typeof google !== "undefined" && google.script && google.script.run;
 
   const state = {
     bytes: null, fileName: "", pdf: null, report: null, lib: null,
-    sev: "all", type: "all", query: "", selected: null,
+    sev: "all", cat: "all", query: "", hideDone: false, groupBy: "sheet", visible: [],
+    selected: null, markIndex: 0, done: new Set(),
     page: 0, scale: 1, fitted: false, renderTask: null, renderSeq: 0,
   };
 
@@ -100,25 +110,36 @@
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => e.dataTransfer.files[0] && start(e.dataTransfer.files[0]));
-  $("newCheck").addEventListener("click", () => location.reload());
+  $("newCheck").addEventListener("click", () => {
+    if (!state.report || confirm("เริ่มตรวจไฟล์ใหม่? ผลตรวจที่แสดงอยู่จะถูกปิด (เครื่องหมาย \"แก้แล้ว\" ยังจำไว้สำหรับไฟล์นี้)")) location.reload();
+  });
 
   function showError(msg) {
-    $("uploadError").textContent = msg;
+    $("uploadError").innerHTML = `<b>ตรวจสอบไม่สำเร็จ</b>${esc(msg)}`;
     $("uploadError").hidden = false;
     $("progress").hidden = true;
+    drop.hidden = false;
   }
 
-  function setProgress(text, done, total) {
+  function setProgress(stage, text, done, total) {
     $("progressText").textContent = text;
     $("progressCount").textContent = total > 1 ? `${done} / ${total} หน้า` : "";
-    $("progressFill").style.width = `${total ? (100 * done) / total : 0}%`;
+    const base = [0, 4, 8, 100][stage];
+    const pct = stage === 2 && total ? 8 + (92 * done) / total : base;
+    $("progressFill").style.width = `${pct}%`;
+    document.querySelectorAll("#stages li").forEach((li) => {
+      const k = +li.dataset.stage;
+      li.className = k < stage ? "done" : k === stage ? "now" : "";
+    });
   }
 
   async function start(file) {
     $("uploadError").hidden = true;
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return showError("กรุณาเลือกไฟล์ PDF");
+    drop.hidden = true;
     $("progress").hidden = false;
-    setProgress("กำลังเปิดไฟล์…", 0, 1);
+    $("progressFile").textContent = file.name;
+    setProgress(0, "กำลังเปิดไฟล์…", 0, 1);
     try {
       await ready;
       state.fileName = file.name;
@@ -126,131 +147,351 @@
       // pdf.js takes ownership of the buffer it is given, so hand it a copy
       state.pdf = await pdfjsLib.getDocument({ data: state.bytes.slice(), isEvalSupported: false }).promise;
       if (!state.lib) {
-        setProgress("กำลังเตรียมคลังตัวอักษร…", 0, 1);
+        setProgress(1, "กำลังเตรียมคลังตัวอักษร…", 0, 1);
         await tick();
         state.lib = new SC.TemplateLibrary(SC_GLYPHS);
       }
       const t0 = performance.now();
+      setProgress(2, "กำลังอ่านแบบ…", 0, state.pdf.numPages);
       const report = await SC.runCheck(state.pdf, state.lib, pdfjsLib.OPS, (done, total) => {
         const eta = done ? ((performance.now() - t0) / done) * (total - done) / 1000 : 0;
-        setProgress(`กำลังอ่านแบบและตรวจสอบ… ${done < total ? `(เหลืออีกประมาณ ${Math.ceil(eta)} วินาที)` : ""}`, done, total);
+        setProgress(done < total ? 2 : 3, done < total ? `กำลังอ่านแบบ… เหลืออีกประมาณ ${Math.ceil(eta)} วินาที` : "กำลังสรุปผล…", done, total);
       });
       report.file_name = file.name;
       report.elapsed = ((performance.now() - t0) / 1000).toFixed(1);
       showReport(report);
     } catch (e) {
       console.error(e);
-      showError(`ตรวจสอบไม่สำเร็จ: ${e && e.message ? e.message : e}`);
+      showError(e && e.message ? e.message : String(e));
     }
   }
 
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
+  // ------------------------------------------------------------------ "fixed" ticks, remembered per file
+  const doneKey = () => `sc-done:${state.fileName}:${state.bytes.length}`;
+  const fKey = (f) => `${f.code}|${f.page}|${f.message}`;
+  function loadDone() {
+    try { return new Set(JSON.parse(localStorage.getItem(doneKey()) || "[]")); } catch (e) { return new Set(); }
+  }
+  function saveDone() {
+    try { localStorage.setItem(doneKey(), JSON.stringify([...state.done])); } catch (e) { /* storage unavailable: keep for this visit only */ }
+  }
+  const isDone = (f) => state.done.has(fKey(f));
+  function toggleDone(n, value) {
+    const f = state.report.findings[n - 1];
+    const on = value === undefined ? !isDone(f) : value;
+    if (on) state.done.add(fKey(f)); else state.done.delete(fKey(f));
+    saveDone();
+    renderSummary();
+    renderList();
+    if (state.selected === n) renderCurrent();
+    drawMarks();
+  }
+
   // ------------------------------------------------------------------ report
+  const catOf = (code) => CATS.find((c) => c.codes.includes(code)) || CATS[0];
+  const sheetLabel = (page) => {
+    const p = state.report.pages[page];
+    return p && p.sheet !== null ? `SHEET ${pad(p.sheet)}` : "";
+  };
+  const locLabel = (page) => `หน้า ${page + 1}${sheetLabel(page) ? ` · ${sheetLabel(page)}` : ""}`;
+
   function showReport(report) {
     state.report = report;
+    state.done = loadDone();
     report.findings.forEach((f, i) => (f.n = i + 1));
     $("uploadView").hidden = true;
     $("resultView").hidden = false;
     $("exportActions").hidden = false;
-
-    const s = report.stats;
-    $("summary").innerHTML = `
-      <div class="stat err"><div class="n">${s.errors}</div><div class="l">ผิดพลาด</div></div>
-      <div class="stat warn"><div class="n">${s.warnings}</div><div class="l">เตือน</div></div>
-      <div class="stat"><div class="n">${s.pages}</div><div class="l">หน้า</div></div>
-      <div class="stat"><div class="n">${s.coils}</div><div class="l">coil (${s.contact_rows} contact)</div></div>
-      <div class="stat"><div class="n">${s.contacts}</div><div class="l">contact ที่อ้าง coil</div></div>
-      <div class="stat"><div class="n">${s.bom_designations}</div><div class="l">อุปกรณ์ใน BOM</div></div>
-      <div class="file-line" title="${esc(report.file_name)}">${esc(report.file_name)} · ใช้เวลา ${report.elapsed} วินาที</div>`;
-
-    const types = [...new Set(report.findings.map((f) => f.code))];
-    $("typeFilter").innerHTML = `<option value="all">ทุกประเภท</option>` +
-      types.map((t) => `<option value="${t}">${esc(TYPE_LABEL[t] || t)}</option>`).join("");
+    document.body.dataset.view = "result";
+    $("fileChip").textContent = report.file_name;
+    $("fileChip").title = report.file_name;
 
     $("pageSelect").innerHTML = report.pages.map((p) => {
       const n = report.findings.filter((f) => f.marks.some((m) => m.page === p.index)).length;
-      const label = p.sheet !== null ? `หน้า ${p.index + 1} · SHEET ${pad(p.sheet)}` : `หน้า ${p.index + 1}`;
-      return `<option value="${p.index}">${label}${n ? ` (${n})` : ""}</option>`;
+      const kind = p.kind === "bom" ? " · BOM" : "";
+      return `<option value="${p.index}">${esc(locLabel(p.index))}${kind}${n ? ` · ${n} รายการ` : ""}</option>`;
     }).join("");
 
+    renderSummary();
+    renderTabs();
     renderList();
-    const first = filtered()[0];
+    const first = visible()[0];
     if (first) select(first.n); else showPage(0);
   }
 
-  function filtered() {
+  function renderSummary() {
+    const r = state.report, s = r.stats;
+    const total = r.findings.length;
+    const fixed = r.findings.filter(isDone).length;
+    const big = total
+      ? `<div class="stat-big err"><div class="n">${s.errors}</div><div class="l">ผิดพลาด</div></div>
+         <div class="stat-big warn"><div class="n">${s.warnings}</div><div class="l">เตือน</div></div>
+         <div class="review">
+           <div class="review-label"><span>แก้แล้ว</span><b>${fixed} / ${total}</b></div>
+           <div class="bar"><div class="fill" style="width:${(100 * fixed) / total}%"></div></div>
+         </div>`
+      : `<div class="stat-big ok"><div class="n">0</div><div class="l">ไม่พบจุดที่ต้องแก้ไข</div></div>`;
+    $("summary").innerHTML = `<div class="summary-top">${big}</div>
+      <p class="stat-line"><b>${s.pages}</b> หน้า · <b>${s.coils}</b> coil (${s.contact_rows} contact) ·
+        <b>${s.contacts}</b> contact ที่อ้าง coil · <b>${s.bom_designations}</b> อุปกรณ์ใน BOM · ${r.elapsed} วินาที</p>`;
+  }
+
+  function renderTabs() {
+    const all = state.report.findings;
+    const tab = (id, label, color, n) =>
+      `<button type="button" class="tab${state.cat === id ? " on" : ""}" data-cat="${id}">` +
+      `${color ? `<span class="dot" style="background:${color}"></span>` : ""}${esc(label)}<span class="count">${n}</span></button>`;
+    $("catTabs").innerHTML = tab("all", "ทั้งหมด", "", all.length) +
+      CATS.map((c) => tab(c.id, c.short, `var(--cat-${c.id})`, all.filter((f) => c.codes.includes(f.code)).length)).join("");
+  }
+  $("catTabs").addEventListener("click", (e) => {
+    const b = e.target.closest(".tab");
+    if (!b) return;
+    state.cat = b.dataset.cat;
+    renderTabs();
+    renderList();
+  });
+
+  /** Findings that pass the filters, in the order shown (grouped). */
+  function visible() {
     const q = state.query.trim().toUpperCase().replace(/^-/, "");
-    return state.report.findings.filter((f) =>
+    const items = state.report.findings.filter((f) =>
       (state.sev === "all" || f.severity === state.sev) &&
-      (state.type === "all" || f.code === state.type) &&
+      (state.cat === "all" || catOf(f.code).id === state.cat) &&
+      (!state.hideDone || !isDone(f)) &&
       (!q || (f.message + " " + f.fix).toUpperCase().includes(q)));
+    const order = Object.keys(TYPE_LABEL);
+    if (state.groupBy === "type") items.sort((a, b) => order.indexOf(a.code) - order.indexOf(b.code) || a.n - b.n);
+    else items.sort((a, b) => a.page - b.page || a.n - b.n);
+    return items;
+  }
+
+  function groupOf(f) {
+    if (state.groupBy === "type") return { key: f.code, title: TYPE_LABEL[f.code] || f.code, sub: catOf(f.code).short };
+    const p = state.report.pages[f.page];
+    return { key: `p${f.page}`, title: p.sheet !== null ? `SHEET ${pad(p.sheet)}` : `หน้า ${f.page + 1}`, sub: p.sheet !== null ? `หน้า ${f.page + 1} ใน PDF` : "" };
   }
 
   function renderList() {
-    const items = filtered();
+    const items = visible();
+    state.visible = items;
     const el = $("findings");
     if (!items.length) {
-      el.innerHTML = `<li class="empty">${state.report.findings.length ? "ไม่มีรายการตามตัวกรอง" : "ไม่พบจุดที่ต้องแก้ไข ✓"}</li>`;
+      el.innerHTML = state.report.findings.length
+        ? `<div class="empty"><span class="big">ไม่มีรายการตามตัวกรองนี้</span>ลองเลือกหมวด "ทั้งหมด" หรือล้างคำค้นหา</div>`
+        : `<div class="empty good"><span class="big">ไม่พบจุดที่ต้องแก้ไข</span>cross-reference และ BOM ตรงกันทั้งชุด</div>`;
+      updateNav();
       return;
     }
-    el.innerHTML = items.map((f) => `
-      <li class="finding${f.n === state.selected ? " sel" : ""}" data-n="${f.n}">
-        <div class="meta">
-          <span class="badge ${f.severity}">${f.severity === "error" ? "ผิดพลาด" : "เตือน"}</span>
-          <span>#${f.n}</span><span>หน้า ${f.page + 1}${f.sheet !== null ? ` · SHEET ${pad(f.sheet)}` : ""}</span>
-          <span>${esc(TYPE_LABEL[f.code] || f.code)}</span>
+    const counts = new Map();
+    for (const f of items) { const k = groupOf(f).key; counts.set(k, (counts.get(k) || 0) + 1); }
+    let html = "", last = null;
+    for (const f of items) {
+      const g = groupOf(f);
+      if (g.key !== last) {
+        html += `<div class="group-head"><span><b>${esc(g.title)}</b>${g.sub ? ` · ${esc(g.sub)}` : ""}</span><span>${counts.get(g.key)} รายการ</span></div>`;
+        last = g.key;
+      }
+      html += findingHtml(f);
+    }
+    el.innerHTML = html;
+    updateNav();
+  }
+
+  function findingHtml(f) {
+    const done = isDone(f);
+    const cat = catOf(f.code);
+    const pages = [...new Set(f.marks.map((m) => m.page))];
+    return `
+      <article class="finding ${f.severity}${done ? " done" : ""}${f.n === state.selected ? " sel" : ""}" data-n="${f.n}" tabindex="0">
+        <div class="f-head">
+          <span class="badge ${done ? "done" : f.severity}">${done ? "แก้แล้ว" : f.severity === "error" ? "ผิดพลาด" : "เตือน"}</span>
+          <span class="f-type" title="${esc(cat.label)}">${esc(TYPE_LABEL[f.code] || f.code)}</span>
+          <span class="f-n">#${f.n}</span>
         </div>
         <div class="msg">${esc(f.message)}</div>
-        <div class="fix">→ ${esc(f.fix)}</div>
-      </li>`).join("");
+        <div class="fix-box"><span class="k">วิธีแก้</span><span>${esc(f.fix)}</span></div>
+        <div class="f-foot">
+          ${pages.map((pg) => `<button type="button" class="loc" data-page="${pg}">${esc(locLabel(pg))}</button>`).join("")}
+          <label class="done-toggle"><input type="checkbox" data-done="${f.n}"${done ? " checked" : ""}> แก้แล้ว</label>
+        </div>
+      </article>`;
   }
 
   $("findings").addEventListener("click", (e) => {
-    const li = e.target.closest(".finding");
-    if (li) select(+li.dataset.n);
+    if (e.target.closest(".done-toggle")) return;
+    const card = e.target.closest(".finding");
+    if (!card) return;
+    const n = +card.dataset.n;
+    const loc = e.target.closest(".loc");
+    if (loc) {
+      const f = state.report.findings[n - 1];
+      return select(n, Math.max(0, f.marks.findIndex((m) => m.page === +loc.dataset.page)));
+    }
+    select(n);
+  });
+  $("findings").addEventListener("change", (e) => {
+    if (e.target.dataset.done) toggleDone(+e.target.dataset.done, e.target.checked);
+  });
+  $("findings").addEventListener("keydown", (e) => {
+    const card = e.target.closest(".finding");
+    if (card && e.key === "Enter") select(+card.dataset.n);
   });
   document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === b));
     state.sev = b.dataset.sev;
     renderList();
   }));
-  $("typeFilter").addEventListener("change", (e) => { state.type = e.target.value; renderList(); });
+  $("hideDone").addEventListener("change", (e) => { state.hideDone = e.target.checked; renderList(); });
+  $("groupBy").addEventListener("change", (e) => { state.groupBy = e.target.value; renderList(); });
   $("search").addEventListener("input", (e) => { state.query = e.target.value; renderList(); });
+
+  function resetFilters() {
+    Object.assign(state, { cat: "all", sev: "all", query: "", hideDone: false });
+    document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.sev === "all"));
+    $("search").value = "";
+    $("hideDone").checked = false;
+    renderTabs();
+    renderList();
+    toast("ล้างตัวกรองแล้ว เพื่อแสดงรายการที่เลือก");
+  }
 
   function select(n, markIndex = 0) {
     state.selected = n;
+    if (!state.visible.some((f) => f.n === n)) resetFilters();
+    state.markIndex = markIndex;
     const f = state.report.findings[n - 1];
-    document.querySelectorAll(".finding").forEach((li) => li.classList.toggle("sel", +li.dataset.n === n));
+    document.querySelectorAll(".finding").forEach((el) => el.classList.toggle("sel", +el.dataset.n === n));
+    const card = document.querySelector(`.finding[data-n="${n}"]`);
+    if (card) card.scrollIntoView({ block: "nearest" });
+    renderCurrent();
+    updateNav();
     const m = f.marks[markIndex] || f.marks[0];
-    const cur = $("current");
-    cur.hidden = false;
-    cur.className = `current ${f.severity}`;
-    const others = f.marks.length > 1
-      ? ` · ตำแหน่งที่เกี่ยวข้อง: ${f.marks.map((mk, i) => `<a href="#" data-mi="${i}">หน้า ${mk.page + 1}</a>`).join(", ")}`
-      : "";
-    cur.innerHTML = `<b>#${f.n}</b> ${esc(f.message)} <span class="fix">→ ${esc(f.fix)}</span>${others}`;
-    cur.querySelectorAll("a[data-mi]").forEach((a) => a.addEventListener("click", (e) => {
-      e.preventDefault();
-      select(n, +a.dataset.mi);
-    }));
     showPage(m ? m.page : f.page, m);
   }
 
+  function renderCurrent() {
+    const f = state.report.findings[state.selected - 1];
+    const cur = $("current");
+    if (!f) { cur.hidden = true; return; }
+    const done = isDone(f);
+    cur.hidden = false;
+    cur.className = `current ${f.severity}`;
+    const locs = f.marks.length > 1
+      ? `<div class="c-locs">ตำแหน่งที่เกี่ยวข้อง: ${f.marks.map((m, i) =>
+        `<button type="button" class="loc${i === state.markIndex ? " here" : ""}" data-mi="${i}">${esc(locLabel(m.page))}</button>`).join("")}</div>`
+      : "";
+    cur.innerHTML = `
+      <span class="badge ${done ? "done" : f.severity}">#${f.n}</span>
+      <div class="c-body">
+        <div class="c-msg">${esc(f.message)}</div>
+        <div class="c-fix"><b>วิธีแก้</b> ${esc(f.fix)}</div>
+        ${locs}
+      </div>
+      <label class="done-toggle"><input type="checkbox" id="curDone"${done ? " checked" : ""}> แก้แล้ว</label>`;
+    cur.querySelectorAll("[data-mi]").forEach((b) => b.addEventListener("click", () => select(f.n, +b.dataset.mi)));
+    $("curDone").addEventListener("change", (e) => toggleDone(f.n, e.target.checked));
+  }
+
+  function step(dir) {
+    const items = state.visible || [];
+    if (!items.length) return;
+    const i = items.findIndex((f) => f.n === state.selected);
+    const j = i < 0 ? 0 : Math.max(0, Math.min(items.length - 1, i + dir));
+    select(items[j].n);
+  }
+
+  function updateNav() {
+    const items = state.visible || [];
+    const i = items.findIndex((f) => f.n === state.selected);
+    $("findingPos").textContent = items.length ? `${i < 0 ? "–" : i + 1} / ${items.length}` : "0 / 0";
+    $("prevFinding").disabled = !items.length || i === 0;
+    $("nextFinding").disabled = !items.length || i === items.length - 1;
+    if (state.report) {
+      $("prevPage").disabled = state.page <= 0;
+      $("nextPage").disabled = state.page >= state.report.pages.length - 1;
+    }
+  }
+
+  $("prevFinding").addEventListener("click", () => step(-1));
+  $("nextFinding").addEventListener("click", () => step(1));
+
+  document.addEventListener("keydown", (e) => {
+    if (!state.report || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    const k = e.key.toLowerCase();
+    if (k === "j") { e.preventDefault(); step(1); }
+    else if (k === "k") { e.preventDefault(); step(-1); }
+    else if (e.key === " " && state.selected) { e.preventDefault(); toggleDone(state.selected); }
+    else if (e.key === "Escape") closeMenu();
+  });
+
+  // ------------------------------------------------------------------ export menu
+  function closeMenu() { $("moreList").hidden = true; $("moreBtn").setAttribute("aria-expanded", "false"); }
+  $("moreBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = $("moreList").hidden;
+    $("moreList").hidden = !open;
+    $("moreBtn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#moreMenu")) closeMenu(); });
+  $("moreList").addEventListener("click", () => closeMenu());
+
   // ------------------------------------------------------------------ viewer
   $("pageSelect").addEventListener("change", (e) => showPage(+e.target.value));
+  $("prevPage").addEventListener("click", () => showPage(Math.max(0, state.page - 1)));
+  $("nextPage").addEventListener("click", () => showPage(Math.min(state.report.pages.length - 1, state.page + 1)));
   $("zoomIn").addEventListener("click", () => setScale(state.scale * 1.25));
   $("zoomOut").addEventListener("click", () => setScale(state.scale / 1.25));
   $("zoomFit").addEventListener("click", () => fit());
+
+  // clicking a box on the sheet selects its finding
+  $("overlay").addEventListener("click", (e) => {
+    const r = e.target.closest(".mark");
+    if (r) select(+r.dataset.n, +r.dataset.mi);
+  });
+
+  // drag to pan, Ctrl + wheel to zoom around the pointer
+  const cv = $("canvas");
+  let pan = null;
+  cv.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".mark")) return;
+    pan = { x: e.clientX, y: e.clientY, l: cv.scrollLeft, t: cv.scrollTop, id: e.pointerId, moved: false };
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!pan || e.pointerId !== pan.id) return;
+    const dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+    if (!pan.moved && Math.hypot(dx, dy) < 4) return;
+    if (!pan.moved) { pan.moved = true; cv.classList.add("panning"); cv.setPointerCapture(e.pointerId); }
+    cv.scrollLeft = pan.l - dx;
+    cv.scrollTop = pan.t - dy;
+  });
+  const endPan = () => { pan = null; cv.classList.remove("panning"); };
+  cv.addEventListener("pointerup", endPan);
+  cv.addEventListener("pointercancel", endPan);
+  cv.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey || !state.report) return;
+    e.preventDefault();
+    const rect = cv.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const px = (cv.scrollLeft + mx - 16) / state.scale, py = (cv.scrollTop + my - 16) / state.scale;
+    setScale(state.scale * (e.deltaY < 0 ? 1.2 : 1 / 1.2)).then(() => {
+      cv.scrollLeft = px * state.scale + 16 - mx;
+      cv.scrollTop = py * state.scale + 16 - my;
+    });
+  }, { passive: false });
 
   const meta = (i) => state.report.pages[i];
 
   async function showPage(i, focus) {
     state.page = i;
     $("pageSelect").value = String(i);
+    updateNav();
     if (!state.fitted) {
       state.fitted = true;
-      state.scale = ($("canvas").clientWidth - 32) / meta(i).width;
+      state.scale = (cv.clientWidth - 32) / meta(i).width;
     }
     if (focus && state.scale < 1.6) state.scale = 1.8;
     await render();
@@ -259,12 +500,12 @@
   }
 
   function fit() {
-    setScale(($("canvas").clientWidth - 32) / meta(state.page).width);
+    return setScale((cv.clientWidth - 32) / meta(state.page).width);
   }
 
   function setScale(s) {
     state.scale = Math.max(0.3, Math.min(s, 6));
-    render().then(() => drawMarks());
+    return render().then(() => drawMarks());
   }
 
   async function render() {
@@ -294,29 +535,29 @@
   }
 
   function drawMarks(focus) {
+    if (!state.report) return;
     const p = meta(state.page);
     const svg = $("overlay");
     svg.setAttribute("viewBox", `0 0 ${p.width} ${p.height}`);
     const sel = state.report.findings[state.selected - 1];
     const others = [], mine = [];
     for (const f of state.report.findings) {
-      for (const m of f.marks) {
-        if (m.page !== state.page) continue;
+      f.marks.forEach((m, mi) => {
+        if (m.page !== state.page) return;
         const [x0, y0, x1, y1] = m.bbox;
         const isSel = f === sel;
-        const cls = `mark ${f.severity}${isSel ? "" : " other"}${focus && m === focus ? " focus" : ""}`;
-        (isSel ? mine : others).push(`<rect class="${cls}" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="1.5" vector-effect="non-scaling-stroke"/>`);
-      }
+        const cls = `mark ${f.severity}${isSel ? "" : " other"}${isDone(f) ? " done" : ""}${focus && m === focus ? " focus" : ""}`;
+        (isSel ? mine : others).push(`<rect class="${cls}" data-n="${f.n}" data-mi="${mi}" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="1.5" vector-effect="non-scaling-stroke"><title>#${f.n} ${esc(f.message)}</title></rect>`);
+      });
     }
     svg.innerHTML = others.concat(mine).join("");
   }
 
   function scrollToMark(m) {
-    const c = $("canvas");
     const [x0, y0, x1, y1] = m.bbox;
-    c.scrollTo({
-      left: ((x0 + x1) / 2) * state.scale - c.clientWidth / 2 + 16,
-      top: ((y0 + y1) / 2) * state.scale - c.clientHeight / 2 + 16,
+    cv.scrollTo({
+      left: ((x0 + x1) / 2) * state.scale - cv.clientWidth / 2 + 16,
+      top: ((y0 + y1) / 2) * state.scale - cv.clientHeight / 2 + 16,
       behavior: "smooth",
     });
   }
@@ -336,10 +577,10 @@
   }
 
   function csvRows() {
-    const rows = [["#", "ระดับ", "ประเภท", "หน้า PDF", "SHEET", "รายละเอียด", "สิ่งที่ต้องแก้ไข"]];
+    const rows = [["#", "ระดับ", "หมวด", "ประเภท", "หน้า PDF", "SHEET", "รายละเอียด", "สิ่งที่ต้องแก้ไข", "แก้แล้ว"]];
     for (const f of state.report.findings) {
-      rows.push([f.n, f.severity === "error" ? "ผิดพลาด" : "เตือน", TYPE_LABEL[f.code] || f.code, f.page + 1,
-        f.sheet === null ? "" : f.sheet, f.message, f.fix]);
+      rows.push([f.n, f.severity === "error" ? "ผิดพลาด" : "เตือน", catOf(f.code).label, TYPE_LABEL[f.code] || f.code, f.page + 1,
+        f.sheet === null ? "" : f.sheet, f.message, f.fix, isDone(f) ? "✓" : ""]);
     }
     return rows;
   }
