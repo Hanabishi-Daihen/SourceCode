@@ -28,19 +28,47 @@
   };
 
   // ------------------------------------------------------------------ setup
+  /** Decoded text of a bundled library; names the project file to re-paste if it is damaged. */
+  function libText(key) {
+    const parts = [...document.querySelectorAll(`script.sc-lib[data-lib="${key}"]`)];
+    const want = parts.length ? +parts[0].dataset.parts : 1;
+    const byPart = new Map(parts.map((p) => [+p.dataset.part, p]));
+    let b64 = "";
+    for (let i = 1; i <= want; i++) {
+      const p = byPart.get(i);
+      if (!p) throw new Error(`ไม่พบไฟล์ไลบรารี "${key}" ส่วนที่ ${i} ตรวจว่าได้สร้างไฟล์ HTML ครบทุกไฟล์และเพิ่มใน Index แล้ว`);
+      const text = p.textContent.replace(/\s+/g, "");
+      if (text.length !== +p.dataset.len) {
+        throw new Error(`ไฟล์ ${p.dataset.file}.html ไม่ครบ (มี ${text.length} จาก ${p.dataset.len} ตัวอักษร) กรุณาคัดลอกไฟล์นี้มาวางใหม่`);
+      }
+      b64 += text;
+    }
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
+  function runScript(code) {
+    const s = document.createElement("script");
+    s.text = code;
+    document.head.appendChild(s);
+  }
+
   async function setupPdfJs() {
-    if (!window.pdfjsLib || !window.PDFLib) throw new Error("โหลดไลบรารีของหน้าเว็บไม่ครบ ลองเปิดหน้าใหม่อีกครั้ง");
-    // the pdf.js worker is bundled as text (split over a few files); start it from a blob
-    const code = [...document.querySelectorAll("script.pdfjs-worker")].map((s) => s.textContent).join("");
+    if (!window.pdfjsLib) runScript(libText("pdfjs"));
+    if (!window.PDFLib) runScript(libText("pdflib"));
+    if (!window.pdfjsLib || !window.PDFLib) throw new Error("เปิดไลบรารีของหน้าเว็บไม่สำเร็จ ลองเปิดหน้าใหม่อีกครั้ง");
+    const worker = libText("pdfjs-worker");
     try {
-      const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-      pdfjsLib.GlobalWorkerOptions.workerPort = new Worker(url);
+      pdfjsLib.GlobalWorkerOptions.workerPort = new Worker(URL.createObjectURL(new Blob([worker], { type: "text/javascript" })));
     } catch (e) {
       // no Web Worker allowed here: run pdf.js on the page itself
-      (0, eval)(code);
+      runScript(worker);
     }
   }
   const ready = setupPdfJs();
+  ready.catch((e) => showError(e && e.message ? e.message : String(e)));
 
   if (inAppsScript) { $("toSheet").hidden = false; $("toDrive").hidden = false; }
 

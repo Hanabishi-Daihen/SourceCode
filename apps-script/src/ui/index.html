@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ตรวจสอบ Schematic</title>
   <!-- @include style.css -->
-  <!-- pdf.js and pdf-lib are bundled with the page: nothing is loaded from other sites -->
-  <!-- @include pdfjs -->
-  <!-- @include pdflib -->
 </head>
 <body>
   <header class="top">
@@ -87,9 +84,8 @@
     </section>
   </main>
   <div class="toast" id="toast" hidden></div>
-  <!-- @include worker1 -->
-  <!-- @include worker2 -->
-  <!-- @include worker3 -->
+  <!-- pdf.js and pdf-lib are bundled with the page (base64, decoded by ui.js): nothing is loaded from other sites -->
+  <!-- @include libs -->
   <!-- @include core.js -->
   <!-- @include glyphs.js -->
   <!-- @include ui.js -->

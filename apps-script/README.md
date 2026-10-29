@@ -22,9 +22,12 @@ Apps Script ทำหน้าที่แค่ส่งหน้าเว็�
 | `Core.html` | ตัวอ่านตัวอักษร SHX และตัวตรวจ |
 | `Glyphs.html` | คลังรูปทรงตัวอักษร |
 | `Ui.html` | การทำงานของหน้าเว็บ |
-| `PdfJs.html` | ไลบรารี pdf.js สำหรับอ่าน PDF |
-| `PdfWorker1.html`, `PdfWorker2.html`, `PdfWorker3.html` | ส่วนทำงานเบื้องหลังของ pdf.js (แบ่งเป็น 3 ไฟล์ไม่ให้ไฟล์ใหญ่เกินไป) |
-| `PdfLib.html` | ไลบรารี pdf-lib สำหรับสร้าง PDF ที่ทำ highlight |
+| `PdfJs1.html`, `PdfJs2.html` | ไลบรารี pdf.js สำหรับอ่าน PDF |
+| `PdfWorker1.html` – `PdfWorker4.html` | ส่วนทำงานเบื้องหลังของ pdf.js |
+| `PdfLib1.html`, `PdfLib2.html` | ไลบรารี pdf-lib สำหรับสร้าง PDF ที่ทำ highlight |
+
+ไฟล์ไลบรารีเก็บเป็นข้อความเข้ารหัส (base64) บรรทัดละ 100 ตัวอักษร เพื่อให้วางใน editor ของ Apps Script ได้ครบ
+และแบ่งไฟล์ไม่ให้ใหญ่เกิน 400 KB ถ้าไฟล์ใดวางไม่ครบ หน้าเว็บจะแจ้งชื่อไฟล์ที่ต้องวางใหม่
 
 `dist/standalone.html` คือหน้าเดียวกันรวมเป็นไฟล์เดียว เปิดใน Chrome/Edge ได้เลยโดยไม่ต้องใช้ Apps Script
 (ปุ่มบันทึกลง Google Sheets/Drive จะไม่แสดงในโหมดนี้)
@@ -36,10 +39,11 @@ Apps Script ทำหน้าที่แค่ส่งหน้าเว็�
 3. กลับมาที่ **Editor** แล้ว
    - เปิด `appsscript.json` แทนที่เนื้อหาด้วยไฟล์ `dist/apps-script/appsscript.json`
    - เปิด `Code.gs` แทนที่เนื้อหาด้วยไฟล์ `dist/apps-script/Code.gs`
-   - กด **+** → **HTML** สร้างไฟล์ชื่อ `Index`, `Styles`, `Core`, `Glyphs`, `Ui`, `PdfJs`, `PdfLib`,
-     `PdfWorker1`, `PdfWorker2`, `PdfWorker3` (พิมพ์ชื่อโดยไม่ต้องมี `.html` และต้องสะกดตรงตัวพิมพ์ใหญ่-เล็ก)
-     แล้ววางเนื้อหาจากไฟล์ชื่อเดียวกันใน `dist/apps-script/`
-     ไฟล์ไลบรารีมีขนาด 300–500 KB การวางอาจใช้เวลาไม่กี่วินาที
+   - กด **+** → **HTML** สร้างไฟล์ชื่อ `Index`, `Styles`, `Core`, `Glyphs`, `Ui`, `PdfJs1`, `PdfJs2`,
+     `PdfWorker1`, `PdfWorker2`, `PdfWorker3`, `PdfWorker4`, `PdfLib1`, `PdfLib2`
+     (พิมพ์ชื่อโดยไม่ต้องมี `.html` และต้องสะกดตรงตัวพิมพ์ใหญ่-เล็ก)
+     แล้ววางเนื้อหาจากไฟล์ชื่อเดียวกันใน `dist/apps-script/` (รวม 13 ไฟล์ HTML)
+     ไฟล์ไลบรารีมีขนาดไม่เกิน 400 KB การวางอาจใช้เวลาไม่กี่วินาที
 4. กด **Save** (Ctrl+S)
 5. กด **Deploy** → **New deployment** → เลือกประเภท **Web app**
    - **Execute as:** `User accessing the web app` (ผลจะถูกบันทึกลง Drive ของแต่ละคน)
