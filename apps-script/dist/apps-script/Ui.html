@@ -55,7 +55,29 @@
     document.head.appendChild(s);
   }
 
+  const VERSION = "ebe57bfa";
+  const VERSIONED = ["Index", "Core", "Glyphs", "PdfJs*", "PdfWorker*", "PdfLib*"];
+
+  /** Project files whose build version differs from this Ui file (left over from an update). */
+  function staleFiles() {
+    if (VERSION.startsWith("__")) return []; // unbuilt sources
+    const have = { Index: document.body.dataset.version, ...(window.SC_FILES || {}) };
+    for (const p of document.querySelectorAll("script.sc-lib")) have[p.dataset.file] = p.dataset.version;
+    const stale = [];
+    for (const name of VERSIONED) {
+      const keys = name.endsWith("*") ? Object.keys(have).filter((k) => k.startsWith(name.slice(0, -1))) : [name];
+      if (!keys.length) stale.push(name.replace("*", ""));
+      for (const k of keys) if (have[k] !== VERSION) stale.push(k);
+    }
+    return stale;
+  }
+
   async function setupPdfJs() {
+    const stale = staleFiles();
+    if (stale.length) {
+      throw new Error(`ไฟล์ในโปรเจกต์ Apps Script เป็นคนละรุ่นกับ Ui (รุ่น ${VERSION}): ${stale.join(", ")} ` +
+        "กรุณาคัดลอกไฟล์เหล่านี้จากชุดล่าสุดมาวางใหม่ แล้ว Deploy เป็น New version");
+    }
     if (!window.pdfjsLib) runScript(libText("pdfjs"));
     if (!window.PDFLib) runScript(libText("pdflib"));
     if (!window.pdfjsLib || !window.PDFLib) throw new Error("เปิดไลบรารีของหน้าเว็บไม่สำเร็จ ลองเปิดหน้าใหม่อีกครั้ง");
@@ -67,6 +89,7 @@
       runScript(worker);
     }
   }
+  console.info(`ตรวจสอบ Schematic รุ่น ${VERSION}`);
   const ready = setupPdfJs();
   ready.catch((e) => showError(e && e.message ? e.message : String(e)));
 

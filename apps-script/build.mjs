@@ -1,6 +1,7 @@
 // Build the Apps Script project (dist/apps-script) and a single-file page (dist/standalone.html).
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { CORE } from "./test/load-core.mjs";
 
 const r = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -34,12 +35,21 @@ addLib("pdfjs", "PdfJs", nm("pdfjs-dist/build/pdf.min.js"));
 addLib("pdfjs-worker", "PdfWorker", nm("pdfjs-dist/build/pdf.worker.min.js"));
 addLib("pdflib", "PdfLib", nm("pdf-lib/dist/pdf-lib.min.js"));
 
+// Every generated file carries the build version so the page can name any file left
+// over from an older build (a common slip when updating the Apps Script project by hand).
+const VERSION = createHash("sha256")
+  .update(libs.map((l) => l.body).join("") + r("./src/ui/index.html") + r("./src/ui/style.css") + r("./src/ui/ui.js") +
+    CORE.map((f) => r(`./src/core/${f}`)).join("") + r("./build/glyphs.js"))
+  .digest("hex").slice(0, 8);
+for (const l of libs) l.body = l.body.replace('class="sc-lib"', `class="sc-lib" data-version="${VERSION}"`);
+const mark = (name) => `;(window.SC_FILES = window.SC_FILES || {})[${JSON.stringify(name)}] = "${VERSION}";\n`;
+
 const parts = {
   "style.css": { name: "Styles", body: `<style>\n${r("./src/ui/style.css")}</style>\n` },
-  "core.js": { name: "Core", body: `<script>\n${CORE.map((f) => r(`./src/core/${f}`)).join("\n")}</script>\n` },
+  "core.js": { name: "Core", body: `<script>\n${CORE.map((f) => r(`./src/core/${f}`)).join("\n")}\n${mark("Core")}</script>\n` },
   // one template per line keeps the Apps Script editor responsive
-  "glyphs.js": { name: "Glyphs", body: `<script>\n${r("./build/glyphs.js").replace(/\],\[/g, "],\n[")}</script>\n` },
-  "ui.js": { name: "Ui", body: `<script>\n${r("./src/ui/ui.js")}</script>\n` },
+  "glyphs.js": { name: "Glyphs", body: `<script>\n${r("./build/glyphs.js").replace(/\],\[/g, "],\n[")}\n${mark("Glyphs")}</script>\n` },
+  "ui.js": { name: "Ui", body: `<script>\n${r("./src/ui/ui.js").replaceAll("__SC_VERSION__", VERSION)}</script>\n` },
 };
 for (const l of libs) parts[l.key] = l;
 for (const { name, body } of Object.values(parts)) {
@@ -49,7 +59,7 @@ for (const { name, body } of Object.values(parts)) {
   if (/<\/script/i.test(inner) || inner.includes("<?")) throw new Error(`${name}: content would break the page (</script or <?)`);
 }
 
-const index = r("./src/ui/index.html");
+const index = r("./src/ui/index.html").replaceAll("__SC_VERSION__", VERSION);
 const out = new URL("./dist/apps-script/", import.meta.url);
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
@@ -64,4 +74,5 @@ if (/https?:\/\/(?!www\.w3\.org)/.test(index + parts["ui.js"].body + parts["styl
 const standalone = expand(index, (p) => p.body);
 fs.writeFileSync(new URL("./dist/standalone.html", import.meta.url), standalone);
 for (const f of fs.readdirSync(out)) console.error(`dist/apps-script/${f}  ${(fs.statSync(new URL(f, out)).size / 1024).toFixed(0)} KB`);
+console.error(`version ${VERSION}`);
 console.error(`dist/standalone.html  ${(fs.statSync(new URL("./dist/standalone.html", import.meta.url)).size / 1024).toFixed(0)} KB`);
