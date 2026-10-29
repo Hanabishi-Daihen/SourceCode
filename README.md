@@ -28,7 +28,16 @@ AutoCAD plot ฟอนต์ SHX ออกมาเป็นเส้น ไม�
 
 เลข SHEET นับใหม่ในแต่ละชุดแบบ (4C / 4T / 4S) การอ้างอิงจึงตรวจภายในชุดเดียวกัน
 
-## ติดตั้งและรัน
+## สองเวอร์ชัน
+
+| เวอร์ชัน | ที่อยู่ | เหมาะกับ |
+|---|---|---|
+| **Google Apps Script** (แนะนำ) | [`apps-script/`](apps-script/README.md) | ไม่ต้องมี server ไม่มีค่าใช้จ่าย ตรวจใน browser ของผู้ใช้ บันทึกผลลง Google Sheets/Drive ได้ |
+| Python web app | `backend/` | รันบน server ของบริษัทหรือ Docker และเป็นที่เก็บเครื่องมือสร้างคลังตัวอักษร |
+
+ทั้งสองเวอร์ชันใช้หลักการและคลังตัวอักษรเดียวกัน วิธีติดตั้งบน Apps Script อยู่ใน [apps-script/README.md](apps-script/README.md)
+
+## ติดตั้งและรัน (เวอร์ชัน Python)
 
 ```bash
 cd backend

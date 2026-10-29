@@ -5,3 +5,5 @@ node_modules/
 dist/
 *.pdf
 backend/data/
+apps-script/node_modules/
+apps-script/build/

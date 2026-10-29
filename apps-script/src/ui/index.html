@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ตรวจสอบ Schematic</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- @include style.css -->
+  <!-- pdf.js and pdf-lib run the whole check inside the browser; nothing is uploaded -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>window.pdfjsLib || document.write('<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"><\/script>');</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <script>window.PDFLib || document.write('<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"><\/script>');</script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">⌁</span>
+      <div>
+        <h1>ตรวจสอบ Schematic Diagram</h1>
+        <p class="sub">ตรวจตำแหน่งอุปกรณ์ใน BOM และ cross-reference ของ Coil / Contact</p>
+      </div>
+    </div>
+    <div class="actions" id="exportActions" hidden>
+      <button class="btn" id="dlPdf" type="button">ดาวน์โหลด PDF ที่ทำ highlight</button>
+      <button class="btn ghost" id="dlCsv" type="button">ดาวน์โหลดรายงาน (CSV)</button>
+      <button class="btn ghost" id="toSheet" type="button" hidden>บันทึกรายงานลง Google Sheets</button>
+      <button class="btn ghost" id="toDrive" type="button" hidden>บันทึก PDF ลง Google Drive</button>
+      <button class="btn ghost" id="newCheck" type="button">ตรวจไฟล์ใหม่</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="uploadView" class="upload">
+      <label class="drop" id="drop">
+        <input type="file" id="fileInput" accept="application/pdf">
+        <span class="drop-icon" aria-hidden="true">⇪</span>
+        <strong>ลากไฟล์ PDF มาวาง หรือคลิกเพื่อเลือกไฟล์</strong>
+        <span class="hint">PDF ชุดแบบทั้งหมดในไฟล์เดียว (หน้า BOM + Schematic)</span>
+      </label>
+      <div class="progress" id="progress" hidden>
+        <div class="progress-label"><span id="progressText">กำลังเปิดไฟล์…</span><span id="progressCount"></span></div>
+        <div class="bar"><div class="fill" id="progressFill"></div></div>
+      </div>
+      <p class="error-msg" id="uploadError" hidden></p>
+      <div class="how">
+        <h2>โปรแกรมตรวจอะไรบ้าง</h2>
+        <ol>
+          <li><b>ตาราง contact ใต้ coil</b> เช่น <code>4 —/— 7 /24.C4</code> ต้องมี contact ของอุปกรณ์นั้นวาดอยู่ที่ SHEET 24 ตำแหน่ง C4 จริง</li>
+          <li><b>ตำแหน่ง coil ที่เขียนไว้ข้าง contact</b> เช่น <code>-KH1 /16.G2</code> ต้องตรงกับตำแหน่ง coil จริง</li>
+          <li><b>contact ทุกตัว</b> ต้องมีอยู่ในตารางใต้ coil ของมัน</li>
+          <li><b>BOM</b> อุปกรณ์แต่ละตัวต้องปรากฏใน SHEET ที่ระบุไว้</li>
+        </ol>
+        <p class="note">ไฟล์ถูกอ่านและตรวจในเครื่องของคุณเอง ไม่มีการส่งไฟล์ออกไปที่ใด</p>
+      </div>
+    </section>
+
+    <section id="resultView" class="result" hidden>
+      <aside class="panel">
+        <div class="summary" id="summary"></div>
+        <div class="filters">
+          <div class="seg" role="group" aria-label="ระดับ">
+            <button type="button" data-sev="all" class="on">ทั้งหมด</button>
+            <button type="button" data-sev="error">ผิดพลาด</button>
+            <button type="button" data-sev="warning">เตือน</button>
+          </div>
+          <select id="typeFilter" aria-label="ประเภท"></select>
+          <input type="search" id="search" placeholder="ค้นหา เช่น KH1 หรือ 24.C4">
+        </div>
+        <ol class="findings" id="findings"></ol>
+      </aside>
+      <section class="viewer">
+        <div class="viewer-bar">
+          <select id="pageSelect" aria-label="หน้า"></select>
+          <div class="zoom">
+            <button type="button" id="zoomOut" aria-label="ย่อ">−</button>
+            <span id="zoomText">100%</span>
+            <button type="button" id="zoomIn" aria-label="ขยาย">+</button>
+            <button type="button" id="zoomFit">พอดีจอ</button>
+          </div>
+        </div>
+        <div class="current" id="current" hidden></div>
+        <div class="canvas" id="canvas">
+          <div class="sheet" id="sheet">
+            <canvas id="pageCanvas"></canvas>
+            <svg id="overlay"></svg>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+  <div class="toast" id="toast" hidden></div>
+  <!-- @include core.js -->
+  <!-- @include glyphs.js -->
+  <!-- @include ui.js -->
+</body>
+</html>

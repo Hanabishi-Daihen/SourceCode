@@ -1,0 +1,391 @@
+/* Browser UI: open a PDF, run the checker locally, review findings, export. */
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const TYPE_LABEL = {
+    COIL_TABLE_ZONE: "ตารางใต้ coil: ตำแหน่ง contact ไม่ตรง",
+    COIL_TABLE_MISSING: "ตารางใต้ coil: ไม่พบ contact",
+    XREF_SHEET_MISSING: "อ้างถึง SHEET ที่ไม่มี",
+    BACKREF_ZONE: "contact: ตำแหน่ง coil ไม่ตรง",
+    BACKREF_NOT_FOUND: "contact: ไม่พบอุปกรณ์ที่อ้างถึง",
+    BACKREF_SHEET_MISSING: "contact: อ้างถึง SHEET ที่ไม่มี",
+    CONTACT_NOT_LISTED: "contact ไม่อยู่ในตารางใต้ coil",
+    BOM_NOT_ON_SHEET: "BOM: SHEET ไม่ตรง",
+    BOM_NOT_FOUND: "BOM: ไม่พบอุปกรณ์",
+    BOM_SHEET_MISSING: "BOM: SHEET ที่ไม่มี",
+    BOM_SHEET_UNUSED: "BOM: SHEET ไม่มีอุปกรณ์ในแถว",
+    NOT_IN_BOM: "ไม่มีใน BOM",
+  };
+  const WORKERS = [
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js",
+  ];
+  const MAX_CANVAS_PIXELS = 16e6;
+  const inAppsScript = typeof google !== "undefined" && google.script && google.script.run;
+
+  const state = {
+    bytes: null, fileName: "", pdf: null, report: null, lib: null,
+    sev: "all", type: "all", query: "", selected: null,
+    page: 0, scale: 1, fitted: false, renderTask: null, renderSeq: 0,
+  };
+
+  // ------------------------------------------------------------------ setup
+  async function setupPdfJs() {
+    if (!window.pdfjsLib) throw new Error("โหลด pdf.js ไม่ได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
+    // a worker from another origin cannot be started directly; run it from a blob instead
+    for (const url of WORKERS) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const blob = new Blob([await res.text()], { type: "text/javascript" });
+        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+        return;
+      } catch (e) { /* try the next mirror */ }
+    }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = WORKERS[0];
+  }
+  const ready = setupPdfJs();
+
+  if (inAppsScript) { $("toSheet").hidden = false; $("toDrive").hidden = false; }
+
+  // ------------------------------------------------------------------ open & check
+  const drop = $("drop");
+  $("fileInput").addEventListener("change", (e) => e.target.files[0] && start(e.target.files[0]));
+  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => e.dataTransfer.files[0] && start(e.dataTransfer.files[0]));
+  $("newCheck").addEventListener("click", () => location.reload());
+
+  function showError(msg) {
+    $("uploadError").textContent = msg;
+    $("uploadError").hidden = false;
+    $("progress").hidden = true;
+  }
+
+  function setProgress(text, done, total) {
+    $("progressText").textContent = text;
+    $("progressCount").textContent = total > 1 ? `${done} / ${total} หน้า` : "";
+    $("progressFill").style.width = `${total ? (100 * done) / total : 0}%`;
+  }
+
+  async function start(file) {
+    $("uploadError").hidden = true;
+    if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return showError("กรุณาเลือกไฟล์ PDF");
+    $("progress").hidden = false;
+    setProgress("กำลังเปิดไฟล์…", 0, 1);
+    try {
+      await ready;
+      state.fileName = file.name;
+      state.bytes = new Uint8Array(await file.arrayBuffer());
+      // pdf.js takes ownership of the buffer it is given, so hand it a copy
+      state.pdf = await pdfjsLib.getDocument({ data: state.bytes.slice(), isEvalSupported: false }).promise;
+      if (!state.lib) {
+        setProgress("กำลังเตรียมคลังตัวอักษร…", 0, 1);
+        await tick();
+        state.lib = new SC.TemplateLibrary(SC_GLYPHS);
+      }
+      const t0 = performance.now();
+      const report = await SC.runCheck(state.pdf, state.lib, pdfjsLib.OPS, (done, total) => {
+        const eta = done ? ((performance.now() - t0) / done) * (total - done) / 1000 : 0;
+        setProgress(`กำลังอ่านแบบและตรวจสอบ… ${done < total ? `(เหลืออีกประมาณ ${Math.ceil(eta)} วินาที)` : ""}`, done, total);
+      });
+      report.file_name = file.name;
+      report.elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      showReport(report);
+    } catch (e) {
+      console.error(e);
+      showError(`ตรวจสอบไม่สำเร็จ: ${e && e.message ? e.message : e}`);
+    }
+  }
+
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  // ------------------------------------------------------------------ report
+  function showReport(report) {
+    state.report = report;
+    report.findings.forEach((f, i) => (f.n = i + 1));
+    $("uploadView").hidden = true;
+    $("resultView").hidden = false;
+    $("exportActions").hidden = false;
+
+    const s = report.stats;
+    $("summary").innerHTML = `
+      <div class="stat err"><div class="n">${s.errors}</div><div class="l">ผิดพลาด</div></div>
+      <div class="stat warn"><div class="n">${s.warnings}</div><div class="l">เตือน</div></div>
+      <div class="stat"><div class="n">${s.pages}</div><div class="l">หน้า</div></div>
+      <div class="stat"><div class="n">${s.coils}</div><div class="l">coil (${s.contact_rows} contact)</div></div>
+      <div class="stat"><div class="n">${s.contacts}</div><div class="l">contact ที่อ้าง coil</div></div>
+      <div class="stat"><div class="n">${s.bom_designations}</div><div class="l">อุปกรณ์ใน BOM</div></div>
+      <div class="file-line" title="${esc(report.file_name)}">${esc(report.file_name)} · ใช้เวลา ${report.elapsed} วินาที</div>`;
+
+    const types = [...new Set(report.findings.map((f) => f.code))];
+    $("typeFilter").innerHTML = `<option value="all">ทุกประเภท</option>` +
+      types.map((t) => `<option value="${t}">${esc(TYPE_LABEL[t] || t)}</option>`).join("");
+
+    $("pageSelect").innerHTML = report.pages.map((p) => {
+      const n = report.findings.filter((f) => f.marks.some((m) => m.page === p.index)).length;
+      const label = p.sheet !== null ? `หน้า ${p.index + 1} · SHEET ${pad(p.sheet)}` : `หน้า ${p.index + 1}`;
+      return `<option value="${p.index}">${label}${n ? ` (${n})` : ""}</option>`;
+    }).join("");
+
+    renderList();
+    const first = filtered()[0];
+    if (first) select(first.n); else showPage(0);
+  }
+
+  function filtered() {
+    const q = state.query.trim().toUpperCase().replace(/^-/, "");
+    return state.report.findings.filter((f) =>
+      (state.sev === "all" || f.severity === state.sev) &&
+      (state.type === "all" || f.code === state.type) &&
+      (!q || (f.message + " " + f.fix).toUpperCase().includes(q)));
+  }
+
+  function renderList() {
+    const items = filtered();
+    const el = $("findings");
+    if (!items.length) {
+      el.innerHTML = `<li class="empty">${state.report.findings.length ? "ไม่มีรายการตามตัวกรอง" : "ไม่พบจุดที่ต้องแก้ไข ✓"}</li>`;
+      return;
+    }
+    el.innerHTML = items.map((f) => `
+      <li class="finding${f.n === state.selected ? " sel" : ""}" data-n="${f.n}">
+        <div class="meta">
+          <span class="badge ${f.severity}">${f.severity === "error" ? "ผิดพลาด" : "เตือน"}</span>
+          <span>#${f.n}</span><span>หน้า ${f.page + 1}${f.sheet !== null ? ` · SHEET ${pad(f.sheet)}` : ""}</span>
+          <span>${esc(TYPE_LABEL[f.code] || f.code)}</span>
+        </div>
+        <div class="msg">${esc(f.message)}</div>
+        <div class="fix">→ ${esc(f.fix)}</div>
+      </li>`).join("");
+  }
+
+  $("findings").addEventListener("click", (e) => {
+    const li = e.target.closest(".finding");
+    if (li) select(+li.dataset.n);
+  });
+  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === b));
+    state.sev = b.dataset.sev;
+    renderList();
+  }));
+  $("typeFilter").addEventListener("change", (e) => { state.type = e.target.value; renderList(); });
+  $("search").addEventListener("input", (e) => { state.query = e.target.value; renderList(); });
+
+  function select(n, markIndex = 0) {
+    state.selected = n;
+    const f = state.report.findings[n - 1];
+    document.querySelectorAll(".finding").forEach((li) => li.classList.toggle("sel", +li.dataset.n === n));
+    const m = f.marks[markIndex] || f.marks[0];
+    const cur = $("current");
+    cur.hidden = false;
+    cur.className = `current ${f.severity}`;
+    const others = f.marks.length > 1
+      ? ` · ตำแหน่งที่เกี่ยวข้อง: ${f.marks.map((mk, i) => `<a href="#" data-mi="${i}">หน้า ${mk.page + 1}</a>`).join(", ")}`
+      : "";
+    cur.innerHTML = `<b>#${f.n}</b> ${esc(f.message)} <span class="fix">→ ${esc(f.fix)}</span>${others}`;
+    cur.querySelectorAll("a[data-mi]").forEach((a) => a.addEventListener("click", (e) => {
+      e.preventDefault();
+      select(n, +a.dataset.mi);
+    }));
+    showPage(m ? m.page : f.page, m);
+  }
+
+  // ------------------------------------------------------------------ viewer
+  $("pageSelect").addEventListener("change", (e) => showPage(+e.target.value));
+  $("zoomIn").addEventListener("click", () => setScale(state.scale * 1.25));
+  $("zoomOut").addEventListener("click", () => setScale(state.scale / 1.25));
+  $("zoomFit").addEventListener("click", () => fit());
+
+  const meta = (i) => state.report.pages[i];
+
+  async function showPage(i, focus) {
+    state.page = i;
+    $("pageSelect").value = String(i);
+    if (!state.fitted) {
+      state.fitted = true;
+      state.scale = ($("canvas").clientWidth - 32) / meta(i).width;
+    }
+    if (focus && state.scale < 1.6) state.scale = 1.8;
+    await render();
+    drawMarks(focus);
+    if (focus) scrollToMark(focus);
+  }
+
+  function fit() {
+    setScale(($("canvas").clientWidth - 32) / meta(state.page).width);
+  }
+
+  function setScale(s) {
+    state.scale = Math.max(0.3, Math.min(s, 6));
+    render().then(() => drawMarks());
+  }
+
+  async function render() {
+    const seq = ++state.renderSeq;
+    const p = meta(state.page);
+    const page = await state.pdf.getPage(state.page + 1);
+    if (seq !== state.renderSeq) return;
+    const dpr = window.devicePixelRatio || 1;
+    let s = state.scale * dpr;
+    if (p.width * p.height * s * s > MAX_CANVAS_PIXELS) s = Math.sqrt(MAX_CANVAS_PIXELS / (p.width * p.height));
+    const vp = page.getViewport({ scale: s });
+    const canvas = $("pageCanvas");
+    if (state.renderTask) { try { state.renderTask.cancel(); } catch (e) { /* already done */ } }
+    const off = document.createElement("canvas");
+    off.width = Math.floor(vp.width);
+    off.height = Math.floor(vp.height);
+    const task = page.render({ canvasContext: off.getContext("2d"), viewport: vp });
+    state.renderTask = task;
+    try { await task.promise; } catch (e) { return; }
+    if (seq !== state.renderSeq) return;
+    canvas.width = off.width;
+    canvas.height = off.height;
+    canvas.getContext("2d").drawImage(off, 0, 0);
+    canvas.style.width = `${p.width * state.scale}px`;
+    canvas.style.height = `${p.height * state.scale}px`;
+    $("zoomText").textContent = `${Math.round(state.scale * 100)}%`;
+  }
+
+  function drawMarks(focus) {
+    const p = meta(state.page);
+    const svg = $("overlay");
+    svg.setAttribute("viewBox", `0 0 ${p.width} ${p.height}`);
+    const sel = state.report.findings[state.selected - 1];
+    const others = [], mine = [];
+    for (const f of state.report.findings) {
+      for (const m of f.marks) {
+        if (m.page !== state.page) continue;
+        const [x0, y0, x1, y1] = m.bbox;
+        const isSel = f === sel;
+        const cls = `mark ${f.severity}${isSel ? "" : " other"}${focus && m === focus ? " focus" : ""}`;
+        (isSel ? mine : others).push(`<rect class="${cls}" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="1.5" vector-effect="non-scaling-stroke"/>`);
+      }
+    }
+    svg.innerHTML = others.concat(mine).join("");
+  }
+
+  function scrollToMark(m) {
+    const c = $("canvas");
+    const [x0, y0, x1, y1] = m.bbox;
+    c.scrollTo({
+      left: ((x0 + x1) / 2) * state.scale - c.clientWidth / 2 + 16,
+      top: ((y0 + y1) / 2) * state.scale - c.clientHeight / 2 + 16,
+      behavior: "smooth",
+    });
+  }
+
+  // ------------------------------------------------------------------ exports
+  function baseName() { return state.fileName.replace(/\.pdf$/i, ""); }
+
+  function download(data, name, type) {
+    const url = URL.createObjectURL(new Blob([data], { type }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  function csvRows() {
+    const rows = [["#", "ระดับ", "ประเภท", "หน้า PDF", "SHEET", "รายละเอียด", "สิ่งที่ต้องแก้ไข"]];
+    for (const f of state.report.findings) {
+      rows.push([f.n, f.severity === "error" ? "ผิดพลาด" : "เตือน", TYPE_LABEL[f.code] || f.code, f.page + 1,
+        f.sheet === null ? "" : f.sheet, f.message, f.fix]);
+    }
+    return rows;
+  }
+
+  $("dlCsv").addEventListener("click", () => {
+    const csv = csvRows().map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    download("﻿" + csv, `${baseName()}_report.csv`, "text/csv;charset=utf-8"); // BOM: Excel reads Thai correctly
+  });
+
+  async function annotatedPdf() {
+    const { PDFDocument, StandardFonts, rgb, degrees, PDFHexString } = PDFLib;
+    const doc = await PDFDocument.load(state.bytes, { ignoreEncryption: true });
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const colors = { error: [0.86, 0.1, 0.1], warning: [0.95, 0.55, 0] };
+    for (const f of state.report.findings) {
+      const c = colors[f.severity] || colors.error;
+      f.marks.forEach((m, k) => {
+        const page = doc.getPage(m.page);
+        const inv = invert(state.report.viewports[m.page]);
+        const [x0, y0, x1, y1] = m.bbox;
+        const pts = [[x0 - 1.5, y0 - 1.5], [x1 + 1.5, y0 - 1.5], [x1 + 1.5, y1 + 1.5], [x0 - 1.5, y1 + 1.5]].map((p) => apply(inv, p));
+        const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+        const rx0 = Math.min(...xs), ry0 = Math.min(...ys), rx1 = Math.max(...xs), ry1 = Math.max(...ys);
+        page.drawRectangle({ x: rx0, y: ry0, width: rx1 - rx0, height: ry1 - ry0, borderColor: rgb(...c), borderWidth: 1.2 });
+        // number label right of the box (labels sit left of their symbols, so this side is
+        // usually free), drawn upright on the rotated sheet
+        const lp = apply(inv, [x1 + 2.5, (y0 + y1) / 2 + 2]);
+        page.drawText(`#${f.n}`, { x: lp[0], y: lp[1], size: 5.5, font, color: rgb(...c), rotate: degrees(page.getRotation().angle) });
+        if (k === 0) {
+          const annot = doc.context.obj({
+            Type: "Annot", Subtype: "Square", Rect: [rx0, ry0, rx1, ry1], C: c, F: 4, Border: [0, 0, 0],
+            T: PDFHexString.fromText(`#${f.n} ${f.code}`),
+            Contents: PDFHexString.fromText(`${f.message}\nแก้ไข: ${f.fix}`),
+          });
+          page.node.addAnnot(doc.context.register(annot));
+        }
+      });
+    }
+    return doc.save();
+  }
+
+  function invert(m) {
+    const [a, b, c, d, e, f] = m;
+    const det = a * d - b * c;
+    return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+  }
+  const apply = (m, [x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+  async function busy(btn, fn) {
+    btn.disabled = true;
+    try { await fn(); } catch (e) { console.error(e); toast(`ไม่สำเร็จ: ${e && e.message ? e.message : e}`); } finally { btn.disabled = false; }
+  }
+
+  $("dlPdf").addEventListener("click", () => busy($("dlPdf"), async () => {
+    download(await annotatedPdf(), `${baseName()}_checked.pdf`, "application/pdf");
+  }));
+
+  // Apps Script only: save to the user's Google Drive / Sheets
+  function gs(fn, ...args) {
+    return new Promise((resolve, reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args));
+  }
+
+  $("toSheet").addEventListener("click", () => busy($("toSheet"), async () => {
+    const url = await gs("saveReportToSheet", `${baseName()} - ผลตรวจ Schematic`, csvRows());
+    toast(`บันทึกแล้ว: <a href="${url}" target="_blank" rel="noopener">เปิด Google Sheets</a>`, true);
+  }));
+
+  $("toDrive").addEventListener("click", () => busy($("toDrive"), async () => {
+    const bytes = await annotatedPdf();
+    const url = await gs("savePdfToDrive", `${baseName()}_checked.pdf`, toBase64(bytes));
+    toast(`บันทึกแล้ว: <a href="${url}" target="_blank" rel="noopener">เปิดไฟล์ใน Google Drive</a>`, true);
+  }));
+
+  function toBase64(bytes) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+
+  let toastTimer = null;
+  function toast(html, keep) {
+    const t = $("toast");
+    t.innerHTML = html;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.hidden = true), keep ? 15000 : 6000);
+  }
+
+  // ------------------------------------------------------------------ utils
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+})();
