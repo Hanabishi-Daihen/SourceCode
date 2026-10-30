@@ -56,6 +56,11 @@
         <span class="hint">หรือ <u>คลิกเพื่อเลือกไฟล์</u> · ไฟล์เดียวรวมทุกหน้า</span>
       </label>
 
+      <label class="option" id="bomOption">
+        <input type="checkbox" id="withBom">
+        <span>ตรวจ BOM ด้วย <span class="exp">ทดลอง</span><br><small>ยังไม่แม่นยำพอ อาจมีรายการที่แจ้งผิด ปกติให้ตรวจเฉพาะ contact / coil</small></span>
+      </label>
+
       <div class="progress-card" id="progress" hidden>
         <div class="progress-head">
           <span class="spinner" aria-hidden="true"></span>
@@ -89,7 +94,7 @@
         </article>
         <article class="card">
           <span class="cat-icon cat-bom" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span>
-          <h4>Bill of Material</h4>
+          <h4>Bill of Material <span class="exp">ทดลอง</span></h4>
           <p>อุปกรณ์แต่ละตัวในตาราง BOM ต้องมีชื่ออยู่ใน SHEET ที่ระบุ (เช่น <code>QF1,QF2</code> → <code>06,07</code>) และสัญลักษณ์ในแบบต้องตรงกับช่อง SCHEMATIC DIAGRAM</p>
         </article>
       </div>

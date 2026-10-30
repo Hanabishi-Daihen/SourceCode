@@ -2,13 +2,13 @@
 (function (SC) {
   "use strict";
 
-  const XREF = /\/(\d{1,3})\.([A-L])(\d{1,2})/g;
+  const XREF = /\/(\d{1,3})\.?([A-L])(\d{1,2})/g; // the dot is tiny and sometimes lost
   const TAG = /-([0-9]*[A-Z][A-Z0-9]*)/g;
   const DIGITS = /^\d{1,3}$/;
   // words that appear after a dash in switch labels ("ON-OFF") but are not device tags
   const NOT_TAGS = new Set(["ON", "OFF", "AUTO", "MAN", "MANUAL", "TEST", "RESET", "LOCAL", "REMOTE", "RAISE",
     "LOWER", "STOP", "START", "OPEN", "CLOSE", "TRIP", "ALARM", "SPARE", "GND", "PE"]);
-  const TERM = /^(?:[0-9]{1,3}[A-Z]?|[A-Z][0-9]{1,2})$/;
+  const TERM = /^(?:[0-9]{1,3}[A-Z]?|[A-Z][0-9]{1,2}|[0-9]{1,2}\.[0-9]{1,3})$/;
 
   const compact = (s) => s.replace(/ /g, "");
   const isAlnum = (c) => /[\p{L}\p{N}]/u.test(c);
@@ -253,13 +253,19 @@
     TAG.lastIndex = 0;
     let m;
     while ((m = TAG.exec(t))) {
-      if (m.index > 0 && isAlnum(t[m.index - 1])) continue;
+      // a wire or dashed frame line just before the dash reads as "1": "1-WTIx1"
+      if (m.index > 0 && isAlnum(t[m.index - 1]) && !(m.index === 1 && t[0] === "1")) continue;
       const tag = m[1];
       const end = m.index + m[0].length;
       if (end < t.length && t[end] === ".") continue; // terminal reference such as -X3.26
+      if (end + 1 < t.length && t[end] === "/" && !/\d/.test(t[end + 1])) continue; // misread terminal dot
+      if (end < t.length && /\p{Ll}/u.test(t[end])) continue; // a word: "-Time delay"
       if (/^\d+$/.test(tag) || tag.length < 2 || NOT_TAGS.has(tag)) continue;
       out.push(tag);
     }
+    // device numbers alone on their line: "-47", "-86", "-51-2" (ANSI relays)
+    const num = /^-(\d{2,3}(?:-\d{1,2})?)(?=\/|$)/.exec(t);
+    if (num) out.push(num[1]);
     return out;
   }
 
@@ -267,6 +273,7 @@
     const out = new Set(tagsIn(text));
     for (let tok of text.toUpperCase().split(/[\s,]+/)) {
       tok = tok.replace(/^[-+()]+|[-+()]+$/g, "");
+      if (/^\d{2,3}-\d{1,2}$/.test(tok)) { out.add(tok); continue; } // "51-1" (relay number)
       if (!tok || /^\d+$/.test(tok) || !/[A-Z]/.test(tok)) continue;
       out.add(tok);
       if (tok.includes(".")) out.add(tok.split(".")[0]); // terminal X3.26 -> strip X3
@@ -371,11 +378,45 @@
     });
   }
 
+  /**
+   * Boxes that make up the device next to a tag: those within reach of the tag and the
+   * ones chained to them (a breaker's handle box, then its pole boxes).
+   */
+  function deviceBoxes(ln, bx, tagLines) {
+    const H = ln.height;
+    const gap = (a, b) => Math.max(0, b[0] - a[2], a[0] - b[2], b[1] - a[3], a[1] - b[3]);
+    const tagBox = [ln.x0, ln.y0, ln.x1, ln.y1];
+    // a box belongs to the tag written left of it (coils and breakers in a row sit between
+    // two tags), failing that to the nearest tag
+    const owner = (b) => {
+      let best = null, bd = Infinity, left = null, ld = Infinity;
+      for (const [, t] of tagLines) {
+        const d = gap([t.x0, t.y0, t.x1, t.y1], b);
+        if (d < bd) { bd = d; best = t; }
+        const dy = Math.max(0, b[1] - t.y1, t.y0 - b[3]);
+        if (t.x1 <= b[0] + 0.5 * t.height && dy < 4 * t.height && b[0] - t.x1 < ld) { ld = b[0] - t.x1; left = t; }
+      }
+      return left && ld < 6 * left.height ? left : best;
+    };
+    const cand = bx.filter((b) => b[2] - b[0] < 150 && b[3] - b[1] < 100 &&
+      b[0] < ln.x1 + 14 * H && b[2] > ln.x0 && b[1] < ln.y1 + 8 * H && b[3] > ln.y0 - 8 * H && owner(b) === ln);
+    // to the right of the tag or below it
+    const out = cand.filter((b) => gap(tagBox, b) <= 4.5 * H && (b[0] >= ln.x1 - 0.5 * H || b[1] >= ln.y1 - 0.5 * H));
+    for (let added = true; added;) {
+      added = false;
+      for (const b of cand) {
+        if (!out.includes(b) && out.some((o) => gap(o, b) <= 1.5 * H)) { out.push(b); added = true; }
+      }
+    }
+    return out;
+  }
+
   function coilAnchor(ln, bx) {
     const H = ln.height;
     let best = null;
     for (const b of bx) {
-      if (b[2] - b[0] > 60 || b[3] - b[1] > 40) continue;
+      // a double coil (latching relay SET/RESET) is two boxes side by side
+      if (b[2] - b[0] > 120 || b[3] - b[1] > 40 || (b[2] - b[0] > 60 && b[3] - b[1] > 30)) continue;
       const bcx = (b[0] + b[2]) / 2, bcy = (b[1] + b[3]) / 2;
       if (Math.abs(bcy - ln.cy) > 1.5 * H + (b[3] - b[1]) / 2) continue;
       let gap, side;
@@ -385,8 +426,8 @@
       if (gap > 3 * H) continue;
       if (!best || side < best.side || (side === best.side && gap < best.gap)) best = { side, gap, c: [bcx, bcy], b };
     }
-    if (best) return [best.c, best.b];
-    return [[ln.cx, ln.cy], [ln.x0, ln.y0, ln.x1, ln.y1]];
+    if (best) return [best.c, best.b, true];
+    return [[ln.cx, ln.cy], [ln.x0, ln.y0, ln.x1, ln.y1], false];
   }
 
   function contactAnchor(tagLn, refLn, geometry) {
@@ -418,10 +459,10 @@
     return [[(bx0 + bx1) / 2, cy], [bx0, by0, bx1, by1]];
   }
 
+  /** Terminal number labels around a contact ("13", "14", "1.13"). */
   function nearTerminals(anchor, tagLn, lines) {
     const H = tagLn.height;
-    return lines.filter((ln) => /^\d{1,3}$/.test(compact(ln.text)) && Math.abs(ln.cx - anchor[0]) < 3 * H && Math.abs(ln.cy - anchor[1]) < 6 * H)
-      .map((ln) => compact(ln.text));
+    return lines.filter((ln) => /^\d{1,3}(?:\.\d{1,3})?$/.test(compact(ln.text)) && Math.abs(ln.cx - anchor[0]) < 3 * H && Math.abs(ln.cy - anchor[1]) < 6 * H);
   }
 
   function rowTerminals(x, lines) {
@@ -429,8 +470,12 @@
     const prefix = compact(ln.text);
     let k = prefix.indexOf(`/${x.sheet}`);
     if (k < 0) k = prefix.indexOf("/");
-    const head = prefix.slice(0, k);
-    let terms = head.match(/[0-9]{1,3}[A-Z]?|[A-Z][0-9]{1,2}/g) || [];
+    // a plain bar glued to the slash is a wire or a frame line ("|/17.E10"), not terminal 1
+    const slash = ln.text.indexOf("/");
+    const nonSpace = slash > 0 ? ln.text.slice(0, slash).replace(/ /g, "").length : 0;
+    const glued = slash > 0 && ln.text[slash - 1] !== " " && ln.glyphs[nonSpace - 1] && ln.glyphs[nonSpace - 1].ch === "|";
+    const head = glued ? "" : prefix.slice(0, k);
+    let terms = head.match(/[0-9]{1,2}\.[0-9]{1,3}|[0-9]{1,3}[A-Z]?|[A-Z][0-9]{1,2}/g) || [];
     const cands = [];
     for (const other of lines) {
       if (other === ln || other.rot !== ln.rot || ln.rot !== 0) continue;
@@ -473,20 +518,27 @@
       }
       ln.boxes = attachedBoxes(ln, bx);
     }
+    // the whole device next to each tag (also when the tag has no coil table)
+    for (const [, ln] of tagLines) for (const b of deviceBoxes(ln, bx, tagLines)) if (!ln.boxes.includes(b)) ln.boxes.push(b);
 
     const xs = [];
     for (const ln of lines) for (const x of xrefs(ln)) xs.push(x);
     const usedTags = new Set();
 
-    // contact labels: tag with a back-reference right below (or beside) it
+    // contact labels: tag with a back-reference right below (or beside) it; a few labels
+    // leave out the dash ("51-1" over "/15.E2"), those count only right above a reference
+    const tagged = new Set(tagLines.map(([, ln]) => ln));
+    const bare = lines.filter((ln) => !tagged.has(ln) && ln.rot === 0 && /^\d{2,3}-\d{1,2}$/.test(compact(ln.text)))
+      .map((ln) => [compact(ln.text), ln, true]);
     const backrefOf = new Map();
     for (const x of xs) {
       const H = x.line.height;
       let best = null;
-      for (const [tag, ln] of tagLines) {
+      for (const [tag, ln, isBare] of tagLines.concat(bare)) {
         if (ln === x.line) continue;
-        const below = ln.rot === 0 && x.line.y0 - ln.y1 >= 0 && x.line.y0 - ln.y1 < 1.6 * H && overlap(ln.x0, ln.x1, x.line.x0, x.line.x1) > -0.5 * H;
-        const vert = ln.rot !== 0 && ln.rot === x.line.rot && Math.abs(ln.cx - x.line.cx) < 2.5 * H && overlap(ln.y0, ln.y1, x.line.y0, x.line.y1) > -H;
+        const below = ln.rot === 0 && x.line.y0 - ln.y1 >= 0 && x.line.y0 - ln.y1 < (isBare ? 1.2 : 1.6) * H &&
+          overlap(ln.x0, ln.x1, x.line.x0, x.line.x1) > (isBare ? 0.5 * (ln.x1 - ln.x0) : -0.5 * H);
+        const vert = !isBare && ln.rot !== 0 && ln.rot === x.line.rot && Math.abs(ln.cx - x.line.cx) < 2.5 * H && overlap(ln.y0, ln.y1, x.line.y0, x.line.y1) > -H;
         if (below || vert) {
           const d = Math.abs(x.line.cy - ln.cy) + Math.abs(x.line.cx - ln.cx) * 0.2;
           if (!best || d < best[0]) best = [d, tag, ln];
@@ -504,30 +556,55 @@
       if (z) {
         const zones = info.grid.zones(box);
         zones.add(zkey(z.row, z.col));
-        info.contacts.push({ tag, page: info.index, line: ln, backref: x, anchor, zone: z, terminals: nearTerminals(anchor, ln, lines), zones });
+        // a contact drawn across a zone border may be referred to by the zone of its
+        // terminal numbers
+        const terms = nearTerminals(anchor, ln, lines);
+        for (const t of terms) for (const k of info.grid.zones([t.x0, t.y0, t.x1, t.y1])) zones.add(k);
+        info.contacts.push({ tag, page: info.index, line: ln, backref: x, anchor, zone: z, terminals: terms.map((t) => compact(t.text)), zones });
       }
     }
 
     // coil tables: rows "a  b  /S.ZN"
+    // wire continuation arrows (">/07.A1") point to another sheet; they are not table rows
+    const arrows = geometry.filter((st) => st.pts.length >= 4 && st.pts.length <= 5 && st.size > 2 && st.size < 20 &&
+      Math.abs(st.pts[0][0] - st.pts[st.pts.length - 1][0]) < 0.05 && Math.abs(st.pts[0][1] - st.pts[st.pts.length - 1][1]) < 0.05 &&
+      new Set(st.pts.slice(0, -1).map((p) => `${r1(p[0])},${r1(p[1])}`)).size === 3);
+    const isArrowRef = (x) => {
+      const ln = x.line, H = ln.height;
+      return arrows.some((a) => a.y0 < ln.cy && a.y1 > ln.cy && ((a.x1 <= ln.x0 + 0.3 * H && ln.x0 - a.x1 < 1.5 * H) || (a.x0 >= ln.x1 - 0.3 * H && a.x0 - ln.x1 < 1.5 * H)));
+    };
     const rows = [];
     for (const x of xs) {
-      if (backrefOf.has(x)) continue;
+      if (backrefOf.has(x) || (x.line.rot === 0 && isArrowRef(x))) continue;
       const terms = rowTerminals(x, lines);
       if (terms.length) rows.push({ terminals: terms, xref: x });
     }
     const coilTags = tagLines.filter(([, ln]) => !usedTags.has(ln));
+    // cross-references that are neither a contact's back-reference nor a table row
+    // (wire continuations, notes, or text the reader could not place)
+    info.looseXrefs = xs.filter((x) => !backrefOf.has(x) && !rows.some((r) => r.xref === x));
     for (const table of groupRows(rows)) {
       const tx0 = Math.min(...table.map((r) => r.xref.line.x0));
       const tx1 = Math.max(...table.map((r) => r.xref.line.x1));
       const ty0 = Math.min(...table.map((r) => r.xref.line.y0));
+      const ty1 = Math.max(...table.map((r) => r.xref.line.y1));
       const H = table[0].xref.line.height;
+      const tcx = (tx0 + tx1) / 2;
       let best = null;
       for (const [tag, ln] of coilTags) {
-        if (ln.cy > ty0 || ty0 - ln.cy > 45 * H) continue;
-        const d = Math.abs(coilAnchor(ln, bx)[0][0] - (tx0 + tx1) / 2) + 0.15 * (ty0 - ln.cy);
+        const [[ax], box, hasBox] = coilAnchor(ln, bx);
+        const top = Math.min(box[1], ln.y0), bottom = Math.max(box[3], ln.y1);
+        // the table sits under its coil, or occasionally right above it
+        let dv;
+        if (ln.cy <= ty0 && ty0 - ln.cy <= 45 * H) dv = 0.15 * Math.max(0, ty0 - bottom);
+        else if (ln.cy > ty1 && top - ty1 >= -0.5 * H && top - ty1 < 4 * H) dv = 10 + 0.5 * Math.max(0, top - ty1);
+        else continue;
+        // distance from the table centre to the coil box; a tag without a coil box is a poor match
+        const off = tcx < box[0] ? box[0] - tcx : tcx > box[2] ? tcx - box[2] : 0;
+        const d = off + 0.2 * Math.abs(ax - tcx) + dv + (hasBox ? 0 : 40);
         if (!best || d < best[0]) best = [d, tag, ln];
       }
-      if (!best) continue;
+      if (!best) { info.orphanTables.push(table); continue; }
       const [, tag, ln] = best;
       const [anchor, box] = coilAnchor(ln, bx);
       const z = info.zoneOf(anchor[0], anchor[1]);
@@ -536,6 +613,7 @@
       if (!coil) {
         const zones = info.grid.zones(box);
         zones.add(zkey(z.row, z.col));
+        for (const b of deviceBoxes(ln, bx, tagLines)) for (const k of info.grid.zones(b)) zones.add(k);
         coil = { tag, page: info.index, line: ln, anchor, zone: z, rows: [], zones };
         info.coils.push(coil);
       }
@@ -673,7 +751,7 @@
   /**
    * Analyse one page.  `src` = {index, width, height, strokes, textItems, viewportTransform}.
    */
-  function analysePage(src, lib) {
+  function analysePage(src, lib, opts = {}) {
     const { index, width: w, height: h, strokes } = src;
     const real = realTextLines(src.textItems || [], src.viewportTransform);
     const lines = SC.readPage(strokes, lib).concat(real);
@@ -691,7 +769,7 @@
       index, width: w, height: h, sheet, series, kind, grid, lines,
       // our own title block (vendor drawings bound into the set have their own numbering)
       titled: lines.some((ln) => isDwgLabel(ln, h)),
-      coils: [], contacts: [], bomRows: [], tags: new Map(), tokens: new Map(),
+      coils: [], contacts: [], bomRows: [], tags: new Map(), tokens: new Map(), looseXrefs: [], orphanTables: [],
       zoneOf(x, y) {
         const z = grid.zone(x, y);
         return z ? { sheet: this.sheet, row: z[0], col: z[1] } : null;
@@ -709,7 +787,7 @@
       const many = compact(ln.text).length > 1;
       for (const g of ln.glyphs) if (many || !"|-/.,_·".includes(g.ch)) for (const st of g.atom.strokes) st.text = true;
     }
-    if (kind === "bom" || kind === "schematic") info.pack = SC.packSegments(strokes);
+    if (opts.bom !== false && (kind === "bom" || kind === "schematic")) info.pack = SC.packSegments(strokes);
     if (kind === "bom") info.bomRows = parseBom(info, strokes);
     else if (kind === "schematic") parseSchematic(info, strokes);
     return info;

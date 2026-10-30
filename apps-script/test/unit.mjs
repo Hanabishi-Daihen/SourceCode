@@ -31,6 +31,10 @@ assert.ok(tokens("TBO1").has("TB01"));
 assert.deepEqual(tagsIn("-KH1"), ["KH1"]);
 assert.deepEqual(tagsIn("-X3.26"), []); // terminal, not a device
 assert.deepEqual(tagsIn("-ON"), []);
+assert.deepEqual(tagsIn("-47"), ["47"]); // device number alone
+assert.deepEqual(tagsIn("-51-2"), ["51-2"]);
+assert.deepEqual(tagsIn("1-WTIx1"), ["WTIX1"]);
+assert.deepEqual(tagsIn("DC-125"), []);
 assert.deepEqual(tagsIn("-WTIx1"), ["WTIX1"]);
 assert.ok(tokens("-X3.26").has("X3"));
 assert.ok(tokens("-SL1E").has("SL1"));

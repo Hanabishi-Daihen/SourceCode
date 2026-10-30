@@ -22,14 +22,14 @@ if (linesPage) {
   console.error(`page ${linesPage}: ${src.strokes.length} strokes, ${info.lines.length} lines, ${Date.now() - t} ms; sheet ${info.sheet} ${info.series} ${info.kind}`);
   const sorted = info.lines.slice().sort((a, b) => Math.round(a.y0 / 8) - Math.round(b.y0 / 8) || a.x0 - b.x0);
   console.log(sorted.filter((l) => l.text.length > 3).map((l) => l.text).join(" ; "));
-  for (const c of info.coils) console.log("COIL", c.tag, `${c.zone.sheet}.${c.zone.row}${c.zone.col}`, c.rows.map((r) => `${r.terminals.join("-")} ${r.xref}`).join(", "));
-  for (const c of info.contacts) console.log("CONTACT", c.tag, `${c.zone.sheet}.${c.zone.row}${c.zone.col}`, "->", String(c.backref));
+  for (const c of info.coils) console.log("COIL", c.tag, `${c.zone.sheet}.${c.zone.row}${c.zone.col}`, [...c.zones].join("/"), c.rows.map((r) => `${r.terminals.join("-")} ${r.xref}`).join(", "));
+  for (const c of info.contacts) console.log("CONTACT", c.tag, `${c.zone.sheet}.${c.zone.row}${c.zone.col}`, [...c.zones].join("/"), "->", String(c.backref), "terms", c.terminals.join("-"));
   for (const r of info.bomRows) console.log("BOM", r.designations.join(","), r.sheets.join(","));
   process.exit(0);
 }
 
 const t = Date.now();
-const rep = await SC.runCheck(pdf, lib, pdfjs.OPS, (i, n) => process.stderr.write(`\r${i}/${n}`));
+const rep = await SC.runCheck(pdf, lib, pdfjs.OPS, (i, n) => process.stderr.write(`\r${i}/${n}`), { bom: process.argv.includes("--bom") });
 console.error(`\n${((Date.now() - t) / 1000).toFixed(1)}s`, JSON.stringify(rep.stats));
 for (const f of rep.findings) console.log(`[${f.severity}] p${f.page + 1} s${f.sheet} ${f.code}: ${f.message}  => ${f.fix}`);
 if (process.argv[3] && !process.argv[3].startsWith("--")) fs.writeFileSync(process.argv[3], JSON.stringify(rep));

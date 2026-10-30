@@ -3,6 +3,7 @@
   "use strict";
 
   const RES = 24;
+  const ALT_SCORE = 0.85; // fallback characters for atoms inside a text line need this
   const PAD = 2;
   const N = RES * RES;
 
@@ -145,7 +146,8 @@
         const k = dl <= dr ? l-- : r++;
         const pen = 0.5 * Math.min(dl, dr);
         // cosine similarity is at most 1, so nothing further out can beat this
-        const best = Math.max(bestText, bestJunk - margin);
+        // when a non-text template leads, keep looking for a fair character too (fallback)
+        const best = Math.max(bestText, Math.min(bestJunk - margin, ALT_SCORE));
         if (1 - pen < Math.max(best, minScore - 0.05)) break;
         const tv = E[k].v;
         let dot = 0;
@@ -154,7 +156,11 @@
         if (E[k].ch === null) { if (s > bestJunk) bestJunk = s; }
         else if (s > bestText) { bestText = s; textK = k; }
       }
-      if (textK < 0 || bestText < bestJunk - margin) return { ch: null, rot: 0, score: bestJunk };
+      if (textK < 0 || bestText < bestJunk - margin) {
+        // the best character is kept as a fallback for atoms that sit inside a line of text
+        const alt = textK < 0 ? null : { ch: E[textK].ch, rot: E[textK].rot, score: bestText };
+        return { ch: null, rot: 0, score: bestJunk, alt };
+      }
       let { ch, rot } = E[textK];
       if (ch === "P" || ch === "R") ch = pOrR(polys, rot);
       return { ch, rot, score: bestText };

@@ -129,8 +129,39 @@
     return out;
   }
 
-  function check(pages) {
+  /**
+   * Rows of one coil table that are wrong the same way ("1-2", "3-4", "5-6" all at
+   * /06.E5 but drawn at /05.E5) become one finding listing the terminals.
+   */
+  function mergeTableRows(findings) {
+    const out = [], groups = new Map();
+    const re = /^-(\S+) contact (\S+): (.*)$/;
+    for (const f of findings) {
+      const m = (f.code === "COIL_TABLE_ZONE" || f.code === "COIL_TABLE_MISSING") && re.exec(f.message);
+      if (!m) { out.push(f); continue; }
+      const rest = m[3].split(` contact ${m[2]} `).join(" contact ");
+      const key = `${f.code}|${f.page}|${m[1]}|${rest}|${f.fix}`;
+      const g = groups.get(key);
+      if (!g) {
+        const copy = { ...f, marks: f.marks.slice(), terms: [m[2]], tag: m[1], rest };
+        groups.set(key, copy);
+        out.push(copy);
+      } else {
+        g.terms.push(m[2]);
+        for (const mk of f.marks) if (!g.marks.some((o) => o.page === mk.page && o.bbox.join() === mk.bbox.join())) g.marks.push(mk);
+      }
+    }
+    for (const g of groups.values()) {
+      if (g.terms.length > 1) g.message = `-${g.tag} contact ${g.terms.join(", ")}: ${g.rest}`;
+      delete g.terms; delete g.tag; delete g.rest;
+    }
+    return out;
+  }
+
+  /** opts.bom: also check the BOM pages (experimental, off by default). */
+  function check(pages, opts = {}) {
     let findings = [];
+    const verified = { rows: 0, rowsOk: 0, contacts: 0, contactsOk: 0 };
     // sheet numbers restart in every drawing series, so a cross-reference is resolved
     // inside the series of the page it is written on
     inferSeries(pages);
@@ -151,7 +182,9 @@
 
     function occurrences(page, tag) {
       const out = [];
-      for (const ln of page.tags.get(tag) || []) {
+      // tags are written with a dash; some labels leave it out ("51-1 /15.E2")
+      const lines = page.tags.get(tag) || (page.tokens.get(tag) || []).filter((ln) => compact(ln.text) === tag);
+      for (const ln of lines) {
         const H = ln.height;
         // tags sit left of their symbol: look a little further to the right
         const zones = page.grid.zones([ln.x0 - 1.5 * H, ln.y0 - 1.5 * H, ln.x1 + 4 * H, ln.y1 + 1.5 * H]);
@@ -160,6 +193,12 @@
       }
       return out;
     }
+
+    // a contact is "listed" when some table row of its coil points at its zones; a table
+    // row that is wrong usually means one such unlisted contact: they are reported together
+    const listedIn = (c) => (coils.get(c.tag) || []).some((k) => k.rows.some((r) => r.xref.inZones(c.zone.sheet, c.zones)));
+    const explained = new Set();
+    const strayFor = new Map();
 
     // 1) coil contact tables -> contact really drawn at that sheet/zone?
     for (const [tag, cl] of coils) {
@@ -175,14 +214,29 @@
               `ตรวจสอบเลข SHEET ของ ${x}`, coil.page, sheetHere, [mark(coil.page, xb(x))]));
             continue;
           }
+          verified.rows++;
           const here = (contacts.get(tag) || []).filter((c) => c.page === target.index);
-          if (here.some((c) => x.inZones(c.zone.sheet, c.zones))) continue;
+          if (here.some((c) => x.inZones(c.zone.sheet, c.zones))) { verified.rowsOk++; continue; }
           const occ = occurrences(target, tag);
-          if (occ.some(([, z]) => x.inZones(target.sheet, z))) continue;
+          if (occ.some(([, z]) => x.inZones(target.sheet, z))) { verified.rowsOk++; continue; }
           const byTerm = here.filter((c) => row.terminals.some((t) => c.terminals.includes(t)));
           const match = byTerm.length ? byTerm : here;
-          if (match.length) {
+          // elsewhere in the set: a contact with these terminals that no row points at
+          const series = pages[coil.page].series;
+          const stray = (contacts.get(tag) || []).filter((c) => pages[c.page].series === series && c.page !== target.index &&
+            !listedIn(c) && row.terminals.some((t) => c.terminals.includes(t)));
+          const key = `${coil.page}|${coil.line.x0}|${x}`;
+          if (!stray.length && strayFor.has(key)) stray.push(strayFor.get(key)); // other poles of the same contact
+          if (!match.length && stray.length) {
+            const best = stray[0];
+            strayFor.set(key, best);
+            explained.add(best);
+            findings.push(finding("error", "COIL_TABLE_ZONE",
+              `-${tag} contact ${term}: ตารางใต้ coil ระบุ ${x} แต่ contact ${term} อยู่ที่ ${zs(best.zone)}`,
+              `แก้ ${x} เป็น ${zs(best.zone)}`, coil.page, sheetHere, [mark(coil.page, xb(x)), mark(best.page, bb(best.line))]));
+          } else if (match.length) {
             const best = match[0];
+            explained.add(best);
             findings.push(finding("error", "COIL_TABLE_ZONE",
               `-${tag} contact ${term}: ตารางใต้ coil ระบุ ${x} แต่ contact อยู่ที่ ${zs(best.zone)}`,
               `แก้ ${x} เป็น ${zs(best.zone)}`, coil.page, sheetHere, [mark(coil.page, xb(x)), mark(best.page, bb(best.line))]));
@@ -207,6 +261,8 @@
       for (const c of cl) {
         const ref = c.backref;
         const here = zs(c.zone);
+        const before = findings.length;
+        verified.contacts++;
         const bySheet = bySeries(c.page);
         if (ref) {
           const target = bySheet.get(ref.sheet);
@@ -235,22 +291,22 @@
             }
           }
         }
-        if (coilList.length && coilList[0].rows.length) {
-          const listed = coilList.some((k) => k.rows.some((r) => r.xref.inZones(c.zone.sheet, c.zones)));
-          if (!listed) {
+        if (coilList.length && coilList[0].rows.length && !explained.has(c)) {
+          if (!listedIn(c)) {
             const k = coilList[0];
             findings.push(finding("error", "CONTACT_NOT_LISTED", `contact -${tag} ที่ ${here} ไม่มีอยู่ในตารางใต้ coil -${tag}`,
               `เพิ่ม/แก้ตาราง contact ใต้ coil -${tag} ให้มี ${here}`, c.page, c.zone.sheet,
               [mark(c.page, bb(c.line))].concat(k.rows.map((r) => mark(k.page, xb(r.xref))))));
           }
         }
+        if (findings.length === before) verified.contactsOk++;
       }
     }
 
-    // 3) BOM: every designation must appear on (at least one of) the sheets of each SHEET
+    // 3) BOM (only on request): every designation must appear on (at least one of) the sheets of each SHEET
     //    cell of its row, and every listed sheet must show at least one of the row's devices
     const bomTags = new Set();
-    for (const p of pages) {
+    for (const p of opts.bom ? pages : []) {
       const bySheet = bySeries(p.index);
       const sameSeries = pages.filter((q) => q.kind === "schematic" && q.series === p.series && q.sheet !== null);
       for (const row of p.bomRows) {
@@ -295,7 +351,7 @@
     }
 
     // 3b) BOM symbols: the symbol of the row must be the one drawn next to the device
-    findings.push(...symbolFindings(pages));
+    if (opts.bom) findings.push(...symbolFindings(pages));
 
     // 4) coils on schematics that the BOM does not list (only when a BOM exists)
     if (bomTags.size) {
@@ -314,6 +370,7 @@
       seen.add(key);
       return true;
     });
+    findings = mergeTableRows(findings);
 
     let coilCount = 0, rowCount = 0, contactCount = 0;
     for (const cl of coils.values()) { coilCount += cl.length; for (const c of cl) rowCount += c.rows.length; }
@@ -326,10 +383,18 @@
       contact_rows: rowCount,
       contacts: contactCount,
       bom_designations: bomTags.size,
+      bom_checked: !!opts.bom,
+      table_rows_checked: verified.rows,
+      table_rows_ok: verified.rowsOk,
+      contacts_checked: verified.contacts,
+      contacts_ok: verified.contactsOk,
       errors: findings.filter((f) => f.severity === "error").length,
       warnings: findings.filter((f) => f.severity === "warning").length,
     };
-    const pageMeta = pages.map((p) => ({ index: p.index, sheet: p.sheet, series: p.series, kind: p.kind, width: p.width, height: p.height }));
+    const pageMeta = pages.map((p) => ({
+      index: p.index, sheet: p.sheet, series: p.series, kind: p.kind, width: p.width, height: p.height,
+      grid: p.grid ? { cols: p.grid.cols, rows: p.grid.rows, colTicks: p.grid.colTicks, rowTicks: p.grid.rowTicks } : null,
+    }));
     return { pages: pageMeta, findings, stats };
   }
 

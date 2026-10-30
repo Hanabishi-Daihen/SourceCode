@@ -21,7 +21,7 @@
    * onProgress(done, total) is called after each page; the event loop is yielded to
    * between pages so the page stays responsive.
    */
-  async function runCheck(pdf, lib, OPS, onProgress) {
+  async function runCheck(pdf, lib, OPS, onProgress, opts = {}) {
     const n = pdf.numPages;
     const pages = [];
     const viewports = [];
@@ -29,12 +29,12 @@
       const page = await pdf.getPage(i + 1);
       const src = await pageSource(page, i, OPS);
       viewports.push(src.viewportTransform);
-      pages.push(SC.analysePage(src, lib));
+      pages.push(SC.analysePage(src, lib, { bom: !!opts.bom }));
       page.cleanup();
       if (onProgress) onProgress(i + 1, n);
       await new Promise((r) => setTimeout(r, 0));
     }
-    const report = SC.check(pages);
+    const report = SC.check(pages, opts);
     report.viewports = viewports;
     return report;
   }

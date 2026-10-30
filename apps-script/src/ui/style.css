@@ -170,6 +170,17 @@ main { flex: 1; min-height: 0; display: flex; }
 .stages li.done { color: var(--muted); }
 .stages li.done::before { background: var(--ok); }
 
+.option { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 10px 14px; border-radius: 12px; cursor: pointer; color: var(--body); font-size: 14px; }
+.option input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--primary-btn); }
+.option small { color: var(--muted); font-size: 13px; }
+.exp { display: inline-block; vertical-align: 1px; margin-left: 4px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-bg); }
+.verified { display: grid; gap: 4px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.verified b { color: var(--ok); font-weight: 600; font-variant-numeric: tabular-nums; }
+.f-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
+.f-actions .done-toggle { margin-left: 0; }
+.fp-toggle { border: 0; background: transparent; padding: 0; font-size: 12px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.finding.false .msg { text-decoration: line-through; }
+.badge.false { color: var(--muted); background: var(--surface-card); }
 .alert { margin-top: 14px; padding: 12px 16px; border-radius: 12px; background: var(--error-bg); color: var(--error); border: 1px solid transparent; }
 .alert b { display: block; color: var(--error); }
 

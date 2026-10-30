@@ -33,7 +33,7 @@
   const state = {
     bytes: null, fileName: "", pdf: null, report: null, lib: null,
     sev: "all", cat: "all", query: "", hideDone: false, groupBy: "sheet", visible: [],
-    selected: null, markIndex: 0, done: new Set(),
+    selected: null, markIndex: 0, done: new Set(), falseAlarm: new Set(),
     page: 0, scale: 1, fitted: false, renderTask: null, renderSeq: 0,
   };
 
@@ -120,6 +120,7 @@
     $("uploadError").hidden = false;
     $("progress").hidden = true;
     drop.hidden = false;
+    $("bomOption").hidden = false;
   }
 
   function setProgress(stage, text, done, total) {
@@ -138,6 +139,7 @@
     $("uploadError").hidden = true;
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return showError("กรุณาเลือกไฟล์ PDF");
     drop.hidden = true;
+    $("bomOption").hidden = true;
     $("progress").hidden = false;
     $("progressFile").textContent = file.name;
     setProgress(0, "กำลังเปิดไฟล์…", 0, 1);
@@ -157,7 +159,7 @@
       const report = await SC.runCheck(state.pdf, state.lib, pdfjsLib.OPS, (done, total) => {
         const eta = done ? ((performance.now() - t0) / done) * (total - done) / 1000 : 0;
         setProgress(done < total ? 2 : 3, done < total ? `กำลังอ่านแบบ… เหลืออีกประมาณ ${Math.ceil(eta)} วินาที` : "กำลังสรุปผล…", done, total);
-      });
+      }, { bom: $("withBom").checked });
       report.file_name = file.name;
       report.elapsed = ((performance.now() - t0) / 1000).toFixed(1);
       showReport(report);
@@ -170,20 +172,35 @@
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
   // ------------------------------------------------------------------ "fixed" ticks, remembered per file
-  const doneKey = () => `sc-done:${state.fileName}:${state.bytes.length}`;
+  // "fixed" ticks and "not a problem" marks (the program was wrong), remembered per file
+  const doneKey = (kind) => `sc-${kind}:${state.fileName}:${state.bytes.length}`;
   const fKey = (f) => `${f.code}|${f.page}|${f.message}`;
-  function loadDone() {
-    try { return new Set(JSON.parse(localStorage.getItem(doneKey()) || "[]")); } catch (e) { return new Set(); }
+  function loadSet(kind) {
+    try { return new Set(JSON.parse(localStorage.getItem(doneKey(kind)) || "[]")); } catch (e) { return new Set(); }
   }
-  function saveDone() {
-    try { localStorage.setItem(doneKey(), JSON.stringify([...state.done])); } catch (e) { /* storage unavailable: keep for this visit only */ }
+  function saveSet(kind, set) {
+    try { localStorage.setItem(doneKey(kind), JSON.stringify([...set])); } catch (e) { /* storage unavailable: keep for this visit only */ }
   }
-  const isDone = (f) => state.done.has(fKey(f));
+  const isFalse = (f) => state.falseAlarm.has(fKey(f));
+  const isDone = (f) => state.done.has(fKey(f)) || isFalse(f);
+  function toggleFalse(n) {
+    const f = state.report.findings[n - 1];
+    if (isFalse(f)) state.falseAlarm.delete(fKey(f)); else { state.falseAlarm.add(fKey(f)); state.done.delete(fKey(f)); }
+    saveSet("fp", state.falseAlarm);
+    saveSet("done", state.done);
+    refresh(n);
+  }
+  function refresh(n) {
+    renderSummary();
+    renderList();
+    if (state.selected === n) renderCurrent();
+    drawMarks();
+  }
   function toggleDone(n, value) {
     const f = state.report.findings[n - 1];
     const on = value === undefined ? !isDone(f) : value;
-    if (on) state.done.add(fKey(f)); else state.done.delete(fKey(f));
-    saveDone();
+    if (on) state.done.add(fKey(f)); else { state.done.delete(fKey(f)); state.falseAlarm.delete(fKey(f)); saveSet("fp", state.falseAlarm); }
+    saveSet("done", state.done);
     renderSummary();
     renderList();
     if (state.selected === n) renderCurrent();
@@ -200,7 +217,8 @@
 
   function showReport(report) {
     state.report = report;
-    state.done = loadDone();
+    state.done = loadSet("done");
+    state.falseAlarm = loadSet("fp");
     report.findings.forEach((f, i) => (f.n = i + 1));
     $("uploadView").hidden = true;
     $("resultView").hidden = false;
@@ -226,17 +244,22 @@
     const r = state.report, s = r.stats;
     const total = r.findings.length;
     const fixed = r.findings.filter(isDone).length;
+    const wrong = r.findings.filter(isFalse).length;
     const big = total
       ? `<div class="stat-big err"><div class="n">${s.errors}</div><div class="l">ผิดพลาด</div></div>
          <div class="stat-big warn"><div class="n">${s.warnings}</div><div class="l">เตือน</div></div>
          <div class="review">
-           <div class="review-label"><span>แก้แล้ว</span><b>${fixed} / ${total}</b></div>
+           <div class="review-label"><span>แก้แล้ว${wrong ? ` (ไม่ใช่ข้อผิด ${wrong})` : ""}</span><b>${fixed} / ${total}</b></div>
            <div class="bar"><div class="fill" style="width:${(100 * fixed) / total}%"></div></div>
          </div>`
       : `<div class="stat-big ok"><div class="n">0</div><div class="l">ไม่พบจุดที่ต้องแก้ไข</div></div>`;
+    const pct = (ok, n) => (n ? Math.round((100 * ok) / n) : 100);
     $("summary").innerHTML = `<div class="summary-top">${big}</div>
-      <p class="stat-line"><b>${s.pages}</b> หน้า · <b>${s.coils}</b> coil (${s.contact_rows} contact) ·
-        <b>${s.contacts}</b> contact ที่อ้าง coil · <b>${s.bom_designations}</b> อุปกรณ์ใน BOM · ${r.elapsed} วินาที</p>`;
+      <div class="verified">
+        <div><b>${s.table_rows_ok}</b> / ${s.table_rows_checked} <span>แถวในตารางใต้ coil ตรงกับตำแหน่ง contact (${pct(s.table_rows_ok, s.table_rows_checked)}%)</span></div>
+        <div><b>${s.contacts_ok}</b> / ${s.contacts_checked} <span>contact ระบุตำแหน่ง coil ถูกต้อง (${pct(s.contacts_ok, s.contacts_checked)}%)</span></div>
+      </div>
+      <p class="stat-line"><b>${s.pages}</b> หน้า · <b>${s.coils}</b> coil ที่มีตาราง contact${s.bom_checked ? ` · <b>${s.bom_designations}</b> อุปกรณ์ใน BOM` : " · ไม่ได้ตรวจ BOM"} · ${r.elapsed} วินาที</p>`;
   }
 
   function renderTabs() {
@@ -244,8 +267,9 @@
     const tab = (id, label, color, n) =>
       `<button type="button" class="tab${state.cat === id ? " on" : ""}" data-cat="${id}">` +
       `${color ? `<span class="dot" style="background:${color}"></span>` : ""}${esc(label)}<span class="count">${n}</span></button>`;
+    const cats = CATS.filter((c) => c.id !== "bom" || state.report.stats.bom_checked);
     $("catTabs").innerHTML = tab("all", "ทั้งหมด", "", all.length) +
-      CATS.map((c) => tab(c.id, c.short, `var(--cat-${c.id})`, all.filter((f) => c.codes.includes(f.code)).length)).join("");
+      cats.map((c) => tab(c.id, c.short, `var(--cat-${c.id})`, all.filter((f) => c.codes.includes(f.code)).length)).join("");
   }
   $("catTabs").addEventListener("click", (e) => {
     const b = e.target.closest(".tab");
@@ -302,13 +326,13 @@
   }
 
   function findingHtml(f) {
-    const done = isDone(f);
+    const done = isDone(f), wrong = isFalse(f);
     const cat = catOf(f.code);
     const pages = [...new Set(f.marks.map((m) => m.page))];
     return `
-      <article class="finding ${f.severity}${done ? " done" : ""}${f.n === state.selected ? " sel" : ""}" data-n="${f.n}" tabindex="0">
+      <article class="finding ${f.severity}${done ? " done" : ""}${wrong ? " false" : ""}${f.n === state.selected ? " sel" : ""}" data-n="${f.n}" tabindex="0">
         <div class="f-head">
-          <span class="badge ${done ? "done" : f.severity}">${done ? "แก้แล้ว" : f.severity === "error" ? "ผิดพลาด" : "เตือน"}</span>
+          <span class="badge ${wrong ? "false" : done ? "done" : f.severity}">${wrong ? "ไม่ใช่ข้อผิด" : done ? "แก้แล้ว" : f.severity === "error" ? "ผิดพลาด" : "เตือน"}</span>
           <span class="f-type" title="${esc(cat.label)}">${esc(TYPE_LABEL[f.code] || f.code)}</span>
           <span class="f-n">#${f.n}</span>
         </div>
@@ -316,13 +340,18 @@
         <div class="fix-box"><span class="k">วิธีแก้</span><span>${esc(f.fix)}</span></div>
         <div class="f-foot">
           ${pages.map((pg) => `<button type="button" class="loc" data-page="${pg}">${esc(locLabel(pg))}</button>`).join("")}
-          <label class="done-toggle"><input type="checkbox" data-done="${f.n}"${done ? " checked" : ""}> แก้แล้ว</label>
+          <span class="f-actions">
+            <button type="button" class="fp-toggle" data-fp="${f.n}" title="โปรแกรมแจ้งผิด: จุดนี้ในแบบถูกต้องอยู่แล้ว">${wrong ? "ยกเลิก" : "ไม่ใช่ข้อผิด"}</button>
+            <label class="done-toggle"><input type="checkbox" data-done="${f.n}"${done && !wrong ? " checked" : ""}> แก้แล้ว</label>
+          </span>
         </div>
       </article>`;
   }
 
   $("findings").addEventListener("click", (e) => {
     if (e.target.closest(".done-toggle")) return;
+    const fp = e.target.closest(".fp-toggle");
+    if (fp) { e.stopPropagation(); return toggleFalse(+fp.dataset.fp); }
     const card = e.target.closest(".finding");
     if (!card) return;
     const n = +card.dataset.n;
@@ -391,9 +420,13 @@
         <div class="c-fix"><b>วิธีแก้</b> ${esc(f.fix)}</div>
         ${locs}
       </div>
-      <label class="done-toggle"><input type="checkbox" id="curDone"${done ? " checked" : ""}> แก้แล้ว</label>`;
+      <span class="f-actions">
+        <button type="button" class="fp-toggle" id="curFalse" title="โปรแกรมแจ้งผิด: จุดนี้ในแบบถูกต้องอยู่แล้ว">${isFalse(f) ? "ยกเลิก ไม่ใช่ข้อผิด" : "ไม่ใช่ข้อผิด"}</button>
+        <label class="done-toggle"><input type="checkbox" id="curDone"${done && !isFalse(f) ? " checked" : ""}> แก้แล้ว</label>
+      </span>`;
     cur.querySelectorAll("[data-mi]").forEach((b) => b.addEventListener("click", () => select(f.n, +b.dataset.mi)));
     $("curDone").addEventListener("change", (e) => toggleDone(f.n, e.target.checked));
+    $("curFalse").addEventListener("click", () => toggleFalse(f.n));
   }
 
   function step(dir) {
@@ -578,10 +611,10 @@
   }
 
   function csvRows() {
-    const rows = [["#", "ระดับ", "หมวด", "ประเภท", "หน้า PDF", "SHEET", "รายละเอียด", "สิ่งที่ต้องแก้ไข", "แก้แล้ว"]];
+    const rows = [["#", "ระดับ", "หมวด", "ประเภท", "หน้า PDF", "SHEET", "รายละเอียด", "สิ่งที่ต้องแก้ไข", "สถานะ"]];
     for (const f of state.report.findings) {
       rows.push([f.n, f.severity === "error" ? "ผิดพลาด" : "เตือน", catOf(f.code).label, TYPE_LABEL[f.code] || f.code, f.page + 1,
-        f.sheet === null ? "" : f.sheet, f.message, f.fix, isDone(f) ? "✓" : ""]);
+        f.sheet === null ? "" : f.sheet, f.message, f.fix, isFalse(f) ? "ไม่ใช่ข้อผิด (โปรแกรมแจ้งผิด)" : isDone(f) ? "แก้แล้ว" : ""]);
     }
     return rows;
   }

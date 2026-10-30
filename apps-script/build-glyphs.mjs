@@ -16,6 +16,12 @@ const data = src.map((e) => {
   const q = (v, o) => Math.round(((v - o) / s) * 100);
   return [e.ch, e.rot, e.polys.map((pl) => pl.flatMap((p) => [q(p[0], x0), q(p[1], y0)]))];
 });
+// narrow zeros (E10, /10.C8) come in many widths: squeezed copies of the upright ones
+for (const [ch, rot, polys] of data.slice()) {
+  if (ch !== "0" || rot !== 0) continue;
+  for (const f of [0.75, 0.55, 0.4, 0.3]) data.push([ch, 0, polys.map((flat) => flat.map((v, i) => (i % 2 ? v : Math.round(v * f))))]);
+}
+
 // vertical text: every upright character also turned both ways, so that characters only
 // ever labelled in horizontal text are read in vertical text too (e.g. the 'L' of -26WL)
 const turn = (polys, rot) => polys.map((flat) => {
@@ -29,7 +35,7 @@ const turn = (polys, rot) => polys.map((flat) => {
 const have = new Set(data.map(([ch, rot, polys]) => `${ch}|${rot}|${JSON.stringify(polys)}`));
 for (const [ch, rot, polys] of data.slice()) {
   // symmetric shapes (x, o) would come back as look-alikes of upright characters
-  if (ch === null || rot !== 0 || "|-_.,·/()+&XxoO0".includes(ch)) continue;
+  if (ch === null || rot !== 0 || "|-_.,·/()+&XxoO".includes(ch)) continue;
   for (const r of [1, 3]) {
     const t = turn(polys, r);
     const key = `${ch}|${r}|${JSON.stringify(t)}`;

@@ -7,8 +7,9 @@
   "use strict";
 
   const MIN_SCORE = 0.8;
+  const ALT_MIN = 0.85; // a rescued shape must look this much like its character
   const MAX_GLYPH = 10.0; // pt; anything larger is drawing geometry, not text
-  const DOT = 0.35; // pt; atoms smaller than this in both directions are dots
+  const DOT = 0.75; // pt; atoms smaller than this in both directions are dots
   const NEUTRAL = new Set(["|", "-", "/", "X", "x", "+", "."]);
   const BRIDGE = new Set(["X", "x", "+"]);
   const SAME_CASE = new Set([..."cosuvwxz"]);
@@ -50,7 +51,8 @@
     return ch === "|" ? "-" : ch === "-" ? "|" : ch;
   }
 
-  function classifyPage(strokes, lib) {
+  /** Glyphs of the page, and the shapes that look a bit more like drawing than text (rescue). */
+  function classifyPage(strokes, lib, rescue = []) {
     const glyphs = [];
     for (const at of SC.buildAtoms(strokes, 12)) {
       if (at.w <= DOT && at.h <= DOT) {
@@ -60,6 +62,10 @@
       if (Math.max(at.w, at.h) > MAX_GLYPH || at.strokes.length > 25) continue;
       const polys = at.strokes.map((s) => s.pts.map((p) => [p[0] - at.x0, p[1] - at.y0]));
       const r = lib.classify(polys, MIN_SCORE);
+      if (r.ch === null && r.alt && r.alt.score >= ALT_MIN) {
+        rescue.push({ atom: at, ch: r.alt.ch, rot: r.alt.rot, score: r.alt.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
+        continue;
+      }
       if (r.ch === null || r.score < MIN_SCORE) continue;
       glyphs.push({ atom: at, ch: r.ch, rot: r.rot, score: r.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
     }
@@ -135,7 +141,9 @@
           if (taken.has(i) || !NEUTRAL.has(glyphs[i].ch) || inLine.has(i)) continue;
           const [gu0, gv0, gu1, gv1] = fb[i];
           if (gu1 < u0 - H || gu0 > u1 + H) continue;
-          if (gv1 - gv0 > 1.25 * H || gv0 < v0 - 0.25 * H || gv1 > v1 + 0.25 * H) continue;
+          // a slash may reach above and below the digits ("/07.B1" in some fonts)
+          const tall = glyphs[i].ch === "/" ? 0.6 : 0.25;
+          if (gv1 - gv0 > (1 + 2 * tall) * H || gv0 < v0 - tall * H || gv1 > v1 + tall * H) continue;
           if (gu1 - gu0 > 1.5 * H) continue;
           members.push(i); inLine.add(i); taken.add(i);
           u0 = Math.min(u0, gu0); u1 = Math.max(u1, gu1);
@@ -159,7 +167,9 @@
       const [u0, v0, u1, v1] = fb[i];
       let ch = g.rot !== rot || NEUTRAL.has(g.ch) ? neutralChar(g.ch, rot) : g.ch;
       const w = u1 - u0, h = v1 - v0;
-      if ((ch === "|" || ch === "-" || ch === "/") && w < 0.3 * H && h < 0.3 * H) ch = ch === "/" && v1 > base - 0.05 * H && h > 0.12 * H ? "," : ".";
+      // short marks are dots; a dash of a condensed font is short too but has no height
+      const dash = ch === "-" && h < 0.05 * H && w > 0.15 * H;
+      if ((ch === "|" || ch === "-" || ch === "/") && w < 0.3 * H && h < 0.3 * H && !dash) ch = ch === "/" && v1 > base - 0.05 * H && h > 0.12 * H ? "," : ".";
       // a bar reaching above and below the capitals is a bracket ("(G, R)" in this font)
       if (ch === "|" && h > 1.1 * H && v0 < top - 0.04 * H && v1 > base + 0.04 * H) ch = "\u0001";
       if (ch === "|" || ch === "-") {
@@ -231,22 +241,56 @@
     return c.join("");
   }
 
+  /**
+   * Shapes that the library put slightly closer to drawing than to text (a narrow 0 or L
+   * in a condensed font) join a line when they sit in it at its height: wire corners and
+   * other geometry are rarely the size of the text and in line with it.
+   */
+  function rescueInto(glyphs, rescue, lines, rot, fb) {
+    for (const l of lines) {
+      const H = l.H;
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const i of l.members) { u0 = Math.min(u0, fb[i][0]); u1 = Math.max(u1, fb[i][2]); v0 = Math.min(v0, fb[i][1]); v1 = Math.max(v1, fb[i][3]); }
+      for (const g of rescue) {
+        if (g.used || (g.rot !== rot && !(rot !== 0 && SYM180.has(g.ch) && g.rot === 4 - rot))) continue;
+        const [gu0, gv0, gu1, gv1] = frame(g, rot);
+        const h = gv1 - gv0;
+        if (h < 0.85 * H || h > 1.2 * H || gv0 < v0 - 0.2 * H || gv1 > v1 + 0.2 * H) continue;
+        if (gu1 < u0 - 0.9 * H || gu0 > u1 + 0.9 * H) continue;
+        g.used = true;
+        fb[glyphs.length] = [gu0, gv0, gu1, gv1];
+        l.members.push(glyphs.length);
+        glyphs.push(g);
+        u0 = Math.min(u0, gu0); u1 = Math.max(u1, gu1);
+      }
+    }
+  }
+
   function readPage(strokes, lib) {
-    const glyphs = classifyPage(strokes, lib);
+    const rescue = [];
+    const glyphs = classifyPage(strokes, lib, rescue);
     const taken = new Set();
     const all = [];
     for (const rot of [0, 1, 3]) {
       const fb = glyphs.map((g) => frame(g, rot));
       const lines = linesFor(glyphs, rot, taken, fb);
+      rescueInto(glyphs, rescue, lines, rot, fb);
       for (const l of lines) for (const i of l.members) taken.add(i);
       attachNeutrals(glyphs, lines, taken, fb);
       for (const l of lines) all.push({ members: l.members, H: l.H, rot });
     }
-    // leftover vertical bars that are text on their own (terminal "1")
+    // leftover vertical bars that are text on their own (terminal "1"); bars stacked in a
+    // column with others are the dashes of a dashed line
+    const bars = glyphs.filter((g, i) => !taken.has(i) && g.ch === "|");
+    const dashed = (g) => {
+      const h = g.y1 - g.y0;
+      return bars.some((o) => o !== g && Math.abs(o.x0 - g.x0) < 0.2 && Math.abs(o.y1 - o.y0 - h) < 0.2 * h &&
+        Math.min(Math.abs(o.y0 - g.y1), Math.abs(g.y0 - o.y1)) < 1.5 * h);
+    };
     glyphs.forEach((g, i) => {
       if (taken.has(i) || g.ch !== "|") return;
       const h = g.y1 - g.y0;
-      if (h >= 1.2 && h <= MAX_GLYPH) { all.push({ members: [i], H: h, rot: 0 }); taken.add(i); }
+      if (h >= 1.2 && h <= MAX_GLYPH && !dashed(g)) { all.push({ members: [i], H: h, rot: 0 }); taken.add(i); }
     });
     return mergeSplitLines(all.map((l) => lineText(glyphs, l.members, l.H, l.rot)));
   }
