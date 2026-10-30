@@ -159,6 +159,22 @@
   }
 
   /** opts.bom: also check the BOM pages (experimental, off by default). */
+  /**
+   * On an equipment list page the reference may point at the device's symbol, drawn in
+   * the same table row as its name: the referenced zone must overlap that row, right of
+   * the name.
+   */
+  function inListRow(page, ln, ref) {
+    const r = page.grid.rect(ref.row, ref.col, page.width, page.height);
+    if (!r) return false;
+    // rows are separated by rules across the whole table (the short rules inside a row
+    // only separate its sub-lines)
+    const above = page.hrules.filter((y) => y <= ln.cy), below = page.hrules.filter((y) => y > ln.cy);
+    if (!above.length || !below.length) return false;
+    const top = above[above.length - 1], bottom = below[0];
+    return r[1] < bottom - 0.5 && r[3] > top + 0.5 && r[2] > ln.x1;
+  }
+
   function check(pages, opts = {}) {
     let findings = [];
     const verified = { rows: 0, rowsOk: 0, contacts: 0, contactsOk: 0 };
@@ -271,6 +287,7 @@
           if (!ok && target) {
             const contactLines = new Set((contacts.get(tag) || []).map((k) => k.line));
             ok = occ.some(([ln, z]) => !contactLines.has(ln) && ref.inZones(target.sheet, z));
+            if (!ok && target.equipmentList) ok = occ.some(([ln]) => inListRow(target, ln, ref));
           }
           if (!ok) {
             if (!target) {

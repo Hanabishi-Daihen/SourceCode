@@ -28,6 +28,23 @@
       if (!this.cols.length || !this.rows.length) return null;
       return [cell(this.rows, this.rowTicks, y), cell(this.cols, this.colTicks, x)];
     }
+    /** Rectangle of a zone (page edges for the outer rows and columns). */
+    rect(row, col, w, h) {
+      const span = (cells, ticks, lab, max) => {
+        const k = cells.findIndex(([l]) => String(l) === String(lab));
+        if (k < 0) return null;
+        const c = cells[k][1];
+        let lo, hi;
+        if (ticks.length) {
+          lo = Math.max(0, ...ticks.filter((t) => t <= c)); hi = Math.min(max, ...ticks.filter((t) => t > c));
+        } else {
+          lo = k ? (cells[k - 1][1] + c) / 2 : 0; hi = k + 1 < cells.length ? (c + cells[k + 1][1]) / 2 : max;
+        }
+        return [lo, hi];
+      };
+      const xs = span(this.cols, this.colTicks, col, w), ys = span(this.rows, this.rowTicks, row, h);
+      return xs && ys ? [xs[0], ys[0], xs[1], ys[1]] : null;
+    }
     /** Every zone a rectangle touches (slightly shrunk so a hairline overlap does not count). */
     zones(box) {
       const [x0, y0, x1, y1] = box;
@@ -422,6 +439,11 @@
     const H = ln.height;
     let best = null;
     for (const b of bx) {
+      // the tag written inside its device box ("-47" in a relay outline)
+      if (b[0] <= ln.x0 && ln.x1 <= b[2] && b[1] <= ln.y0 && ln.y1 <= b[3] && b[2] - b[0] < 25 * H && b[3] - b[1] < 12 * H) {
+        if (!best || best.side > -1) best = { side: -1, gap: 0, c: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], b };
+        continue;
+      }
       // a double coil (latching relay SET/RESET) is two boxes side by side
       if (b[2] - b[0] > 120 || b[3] - b[1] > 40 || (b[2] - b[0] > 60 && b[3] - b[1] > 30)) continue;
       const bcx = (b[0] + b[2]) / 2, bcy = (b[1] + b[3]) / 2;
@@ -770,12 +792,20 @@
     if (sheet === null) sheet = dwgNo;
     const realText = (src.textItems || []).map((it) => it.str).join(" ");
     const texts = lines.map((ln) => ln.text).join(" ");
+    // equipment lists that show each device's symbol in its row ("Destination",
+    // "Complete equipment representation / Position in schematic"): a reference to such a
+    // page points at the symbol in the row of the device, not at its name
+    const up = (realText + " " + texts).toUpperCase();
+    const equipmentList = up.includes("DESTINATION") && (up.includes("POSITION") || up.includes("EQUIPMENT"));
+    const hrules = equipmentList
+      ? strokes.filter((st) => Math.abs(st.y1 - st.y0) < 0.2 && st.x1 - st.x0 > 0.5 * w).map((st) => (st.y0 + st.y1) / 2).sort((a, b) => a - b)
+      : [];
     let kind;
     if ((realText.includes("DESIGNATION") || texts.includes("DESIGNATION")) && (realText.includes("QTY") || texts.includes("QTY"))) kind = "bom";
     else if (grid.cols.length && grid.rows.length) kind = "schematic";
     else kind = "other";
     const info = {
-      index, width: w, height: h, sheet, series, kind, grid, lines,
+      index, width: w, height: h, sheet, series, kind, grid, lines, equipmentList, hrules,
       // our own title block (vendor drawings bound into the set have their own numbering)
       titled: lines.some((ln) => isDwgLabel(ln, h)),
       coils: [], contacts: [], bomRows: [], tags: new Map(), tokens: new Map(), looseXrefs: [], orphanTables: [],

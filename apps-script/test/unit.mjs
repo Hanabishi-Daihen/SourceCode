@@ -49,6 +49,7 @@ const g = new SC.Grid([[1, 50], [2, 150], [3, 250]], [["A", 50], ["B", 150]], [1
 assert.deepEqual(g.zone(120, 40), ["A", 2]);
 assert.deepEqual(g.zone(199, 160), ["B", 2]);
 for (const z of ["A2", "A3", "B2", "B3"]) assert.ok(g.zones([190, 90, 210, 110]).has(z));
+assert.deepEqual(g.rect("B", 2, 400, 300), [100, 100, 200, 300]);
 
 // a glyph matches itself
 const lib = new SC.TemplateLibrary([["L", 0, [[0, 0, 0, 100, 60, 100]]], [null, 0, [[0, 0, 100, 100]]]]);
