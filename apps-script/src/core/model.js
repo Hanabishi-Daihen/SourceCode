@@ -318,8 +318,15 @@
     XREF.lastIndex = 0;
     let m;
     while ((m = XREF.exec(c))) {
-      const i0 = uncompact(ln.text, m.index), i1 = uncompact(ln.text, m.index + m[0].length - 1) + 1;
-      out.push(new XRef(parseInt(m[1], 10), m[2], parseInt(m[3], 10), ln, ln.charBox(i0, i1)));
+      const i0 = uncompact(ln.text, m.index);
+      // the zone number ends at a space: "/06.F3 3" is /06.F3 followed by the terminal 3
+      // of the next table, not /06.F33
+      const k0 = uncompact(ln.text, m.index + m[0].length - m[3].length);
+      let k1 = k0;
+      while (k1 < ln.text.length && k1 - k0 < m[3].length && /\d/.test(ln.text[k1])) k1++;
+      const num = ln.text.slice(k0, k1);
+      if (num.length < m[3].length) XREF.lastIndex = m.index + m[0].length - (m[3].length - num.length);
+      out.push(new XRef(parseInt(m[1], 10), m[2], parseInt(num, 10), ln, ln.charBox(i0, k1)));
     }
     return out;
   }
@@ -560,6 +567,8 @@
         // terminal numbers
         const terms = nearTerminals(anchor, ln, lines);
         for (const t of terms) for (const k of info.grid.zones([t.x0, t.y0, t.x1, t.y1])) zones.add(k);
+        // ... or by the zone of its label (contacts drawn sideways carry the label above them)
+        for (const k of info.grid.zones([ln.x0, ln.y0, ln.x1, ln.y1])) zones.add(k);
         info.contacts.push({ tag, page: info.index, line: ln, backref: x, anchor, zone: z, terminals: terms.map((t) => compact(t.text)), zones });
       }
     }
@@ -797,5 +806,5 @@
   SC.analysePage = analysePage;
   SC.zkey = zkey;
   SC.pad2 = pad2;
-  SC._test = { parseDesignations, parseSheetList, designationText, tagsIn, tokens };
+  SC._test = { parseDesignations, parseSheetList, designationText, tagsIn, tokens, xrefs };
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));

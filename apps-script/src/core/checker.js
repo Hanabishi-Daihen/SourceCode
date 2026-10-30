@@ -294,9 +294,16 @@
         if (coilList.length && coilList[0].rows.length && !explained.has(c)) {
           if (!listedIn(c)) {
             const k = coilList[0];
-            findings.push(finding("error", "CONTACT_NOT_LISTED", `contact -${tag} ที่ ${here} ไม่มีอยู่ในตารางใต้ coil -${tag}`,
-              `เพิ่ม/แก้ตาราง contact ใต้ coil -${tag} ให้มี ${here}`, c.page, c.zone.sheet,
-              [mark(c.page, bb(c.line))].concat(k.rows.map((r) => mark(k.page, xb(r.xref))))));
+            // the row meant for this contact: same terminals, else one pointing at this sheet
+            const rowsHere = k.rows.filter((r) => r.xref.sheet === c.zone.sheet);
+            const near = rowsHere.find((r) => r.terminals.some((t) => c.terminals.includes(t))) || rowsHere[0];
+            const where = `ตารางใต้ coil -${tag} (ที่ ${zs(k.zone)})`;
+            const msg = near
+              ? `contact -${tag} ที่ ${here}: ${where} ระบุ ${near.terminals.join("-") || "contact"} ไว้ที่ ${near.xref} ไม่ใช่ ${here}`
+              : `contact -${tag} ที่ ${here}: ${where} ไม่มีแถวที่ชี้มาที่ SHEET ${pad2(c.zone.sheet)}`;
+            const fix = near ? `แก้ ${near.xref} เป็น ${here} หรือตรวจตำแหน่ง contact นี้` : `เพิ่มแถว ${here} ในตารางใต้ coil -${tag}`;
+            findings.push(finding("error", "CONTACT_NOT_LISTED", msg, fix, c.page, c.zone.sheet,
+              [mark(c.page, bb(c.line))].concat((near ? [near] : k.rows).map((r) => mark(k.page, xb(r.xref))))));
           }
         }
         if (findings.length === before) verified.contactsOk++;

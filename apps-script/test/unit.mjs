@@ -74,4 +74,13 @@ assert.ok(r.score > 0.95);
   assert.ok(SC.matchPart(parts[0], bom, other, [240, 240, 420, 420]).score < 0.8);
 }
 
+// a terminal of the next table right after a reference is not part of its zone
+{
+  const ln = new SC.TextLine("4 /06.F3 3", 0, 0, 0, 60, 5, 5, []);
+  const xs = SC._test.xrefs(ln);
+  assert.equal(xs.length, 1);
+  assert.equal(String(xs[0]), "/06.F3");
+  assert.equal(String(SC._test.xrefs(new SC.TextLine("/06.E10", 0, 0, 0, 30, 5, 5, []))[0]), "/06.E10");
+}
+
 console.log("all unit tests passed");

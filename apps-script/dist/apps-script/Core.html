@@ -1103,8 +1103,15 @@
     XREF.lastIndex = 0;
     let m;
     while ((m = XREF.exec(c))) {
-      const i0 = uncompact(ln.text, m.index), i1 = uncompact(ln.text, m.index + m[0].length - 1) + 1;
-      out.push(new XRef(parseInt(m[1], 10), m[2], parseInt(m[3], 10), ln, ln.charBox(i0, i1)));
+      const i0 = uncompact(ln.text, m.index);
+      // the zone number ends at a space: "/06.F3 3" is /06.F3 followed by the terminal 3
+      // of the next table, not /06.F33
+      const k0 = uncompact(ln.text, m.index + m[0].length - m[3].length);
+      let k1 = k0;
+      while (k1 < ln.text.length && k1 - k0 < m[3].length && /\d/.test(ln.text[k1])) k1++;
+      const num = ln.text.slice(k0, k1);
+      if (num.length < m[3].length) XREF.lastIndex = m.index + m[0].length - (m[3].length - num.length);
+      out.push(new XRef(parseInt(m[1], 10), m[2], parseInt(num, 10), ln, ln.charBox(i0, k1)));
     }
     return out;
   }
@@ -1345,6 +1352,8 @@
         // terminal numbers
         const terms = nearTerminals(anchor, ln, lines);
         for (const t of terms) for (const k of info.grid.zones([t.x0, t.y0, t.x1, t.y1])) zones.add(k);
+        // ... or by the zone of its label (contacts drawn sideways carry the label above them)
+        for (const k of info.grid.zones([ln.x0, ln.y0, ln.x1, ln.y1])) zones.add(k);
         info.contacts.push({ tag, page: info.index, line: ln, backref: x, anchor, zone: z, terminals: terms.map((t) => compact(t.text)), zones });
       }
     }
@@ -1582,7 +1591,7 @@
   SC.analysePage = analysePage;
   SC.zkey = zkey;
   SC.pad2 = pad2;
-  SC._test = { parseDesignations, parseSheetList, designationText, tagsIn, tokens };
+  SC._test = { parseDesignations, parseSheetList, designationText, tagsIn, tokens, xrefs };
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));
 
 /* Symbol comparison: is the symbol drawn in a BOM row the one drawn next to the device?
@@ -2145,9 +2154,16 @@
         if (coilList.length && coilList[0].rows.length && !explained.has(c)) {
           if (!listedIn(c)) {
             const k = coilList[0];
-            findings.push(finding("error", "CONTACT_NOT_LISTED", `contact -${tag} ที่ ${here} ไม่มีอยู่ในตารางใต้ coil -${tag}`,
-              `เพิ่ม/แก้ตาราง contact ใต้ coil -${tag} ให้มี ${here}`, c.page, c.zone.sheet,
-              [mark(c.page, bb(c.line))].concat(k.rows.map((r) => mark(k.page, xb(r.xref))))));
+            // the row meant for this contact: same terminals, else one pointing at this sheet
+            const rowsHere = k.rows.filter((r) => r.xref.sheet === c.zone.sheet);
+            const near = rowsHere.find((r) => r.terminals.some((t) => c.terminals.includes(t))) || rowsHere[0];
+            const where = `ตารางใต้ coil -${tag} (ที่ ${zs(k.zone)})`;
+            const msg = near
+              ? `contact -${tag} ที่ ${here}: ${where} ระบุ ${near.terminals.join("-") || "contact"} ไว้ที่ ${near.xref} ไม่ใช่ ${here}`
+              : `contact -${tag} ที่ ${here}: ${where} ไม่มีแถวที่ชี้มาที่ SHEET ${pad2(c.zone.sheet)}`;
+            const fix = near ? `แก้ ${near.xref} เป็น ${here} หรือตรวจตำแหน่ง contact นี้` : `เพิ่มแถว ${here} ในตารางใต้ coil -${tag}`;
+            findings.push(finding("error", "CONTACT_NOT_LISTED", msg, fix, c.page, c.zone.sheet,
+              [mark(c.page, bb(c.line))].concat((near ? [near] : k.rows).map((r) => mark(k.page, xb(r.xref))))));
           }
         }
         if (findings.length === before) verified.contactsOk++;
@@ -2297,5 +2313,5 @@
   SC.runCheck = runCheck;
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));
 
-;(window.SC_FILES = window.SC_FILES || {})["Core"] = "11e6a159";
+;(window.SC_FILES = window.SC_FILES || {})["Core"] = "f70205a2";
 </script>
