@@ -111,8 +111,34 @@
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => e.dataTransfer.files[0] && start(e.dataTransfer.files[0]));
+  // back to the upload view without reloading: inside Apps Script the page lives in a
+  // sandboxed frame, and reloading that frame leaves a blank page
   $("newCheck").addEventListener("click", () => {
-    if (!state.report || confirm("เริ่มตรวจไฟล์ใหม่? ผลตรวจที่แสดงอยู่จะถูกปิด (เครื่องหมาย \"แก้แล้ว\" ยังจำไว้สำหรับไฟล์นี้)")) location.reload();
+    if (state.report && !confirm("เริ่มตรวจไฟล์ใหม่? ผลตรวจที่แสดงอยู่จะถูกปิด (เครื่องหมาย \"แก้แล้ว\" ยังจำไว้สำหรับไฟล์นี้)")) return;
+    if (state.renderTask) { try { state.renderTask.cancel(); } catch (e) { /* already done */ } }
+    if (state.pdf) state.pdf.destroy();
+    Object.assign(state, {
+      bytes: null, fileName: "", pdf: null, report: null, sev: "all", cat: "all", query: "", hideDone: false,
+      visible: [], selected: null, markIndex: 0, page: 0, scale: 1, fitted: false, renderTask: null,
+    });
+    state.renderSeq++;
+    document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.sev === "all"));
+    $("search").value = "";
+    $("hideDone").checked = false;
+    $("fileInput").value = "";
+    $("findings").innerHTML = "";
+    $("overlay").innerHTML = "";
+    $("current").hidden = true;
+    closeMenu();
+    $("resultView").hidden = true;
+    $("exportActions").hidden = true;
+    $("uploadView").hidden = false;
+    $("progress").hidden = true;
+    $("uploadError").hidden = true;
+    drop.hidden = false;
+    $("bomOption").hidden = false;
+    document.body.dataset.view = "upload";
+    window.scrollTo(0, 0);
   });
 
   function showError(msg) {
