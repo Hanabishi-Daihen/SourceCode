@@ -16,6 +16,7 @@
     BOM_NOT_FOUND: "ไม่พบอุปกรณ์ใน BOM ในแบบ",
     BOM_SHEET_MISSING: "BOM อ้างถึง SHEET ที่ไม่มี",
     BOM_SHEET_UNUSED: "SHEET ใน BOM ไม่มีอุปกรณ์ในแถว",
+    BOM_SYMBOL_MISMATCH: "สัญลักษณ์ในแบบไม่ตรงกับ BOM",
     NOT_IN_BOM: "coil ไม่มีใน BOM",
   };
   const CATS = [
@@ -24,7 +25,7 @@
     { id: "contact", short: "contact → coil", label: "ตำแหน่ง coil ที่ contact อ้างถึง",
       codes: ["BACKREF_ZONE", "BACKREF_NOT_FOUND", "BACKREF_SHEET_MISSING", "CONTACT_NOT_LISTED"] },
     { id: "bom", short: "BOM", label: "Bill of Material",
-      codes: ["BOM_NOT_ON_SHEET", "BOM_NOT_FOUND", "BOM_SHEET_MISSING", "BOM_SHEET_UNUSED", "NOT_IN_BOM"] },
+      codes: ["BOM_NOT_ON_SHEET", "BOM_NOT_FOUND", "BOM_SHEET_MISSING", "BOM_SHEET_UNUSED", "BOM_SYMBOL_MISMATCH", "NOT_IN_BOM"] },
   ];
   const MAX_CANVAS_PIXELS = 16e6;
   const inAppsScript = typeof google !== "undefined" && google.script && google.script.run;

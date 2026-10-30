@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import vm from "node:vm";
 
-export const CORE = ["strokes.js", "glyphs.js", "ocr.js", "model.js", "checker.js", "pipeline.js"];
+export const CORE = ["strokes.js", "glyphs.js", "ocr.js", "model.js", "symbols.js", "checker.js", "pipeline.js"];
 
 export function loadCore() {
   for (const f of CORE) {

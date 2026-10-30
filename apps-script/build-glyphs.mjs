@@ -16,6 +16,26 @@ const data = src.map((e) => {
   const q = (v, o) => Math.round(((v - o) / s) * 100);
   return [e.ch, e.rot, e.polys.map((pl) => pl.flatMap((p) => [q(p[0], x0), q(p[1], y0)]))];
 });
+// vertical text: every upright character also turned both ways, so that characters only
+// ever labelled in horizontal text are read in vertical text too (e.g. the 'L' of -26WL)
+const turn = (polys, rot) => polys.map((flat) => {
+  const out = [];
+  for (let i = 0; i < flat.length; i += 2) {
+    const u = flat[i], v = flat[i + 1];
+    out.push(...(rot === 1 ? [v, 100 - u] : [100 - v, u]));
+  }
+  return out;
+});
+const have = new Set(data.map(([ch, rot, polys]) => `${ch}|${rot}|${JSON.stringify(polys)}`));
+for (const [ch, rot, polys] of data.slice()) {
+  // symmetric shapes (x, o) would come back as look-alikes of upright characters
+  if (ch === null || rot !== 0 || "|-_.,·/()+&XxoO0".includes(ch)) continue;
+  for (const r of [1, 3]) {
+    const t = turn(polys, r);
+    const key = `${ch}|${r}|${JSON.stringify(t)}`;
+    if (!have.has(key)) { have.add(key); data.push([ch, r, t]); }
+  }
+}
 const lib = new SC.TemplateLibrary(data, { dropJunk: true });
 const keep = new Set(lib.entries.map((e) => e.src));
 console.error(`templates: ${data.length} -> ${lib.entries.length} after dropping conflicting junk`);

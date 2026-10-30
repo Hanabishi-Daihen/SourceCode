@@ -16,13 +16,117 @@
   /** Pages whose drawing number could not be read take the series of their neighbours. */
   function inferSeries(pages) {
     pages.forEach((p, i) => {
-      if (p.series !== null || p.sheet === null) return;
+      if (p.series !== null || p.sheet === null || p.titled === false) return;
       let prev = null, nxt = null;
       for (let k = i - 1; k >= 0; k--) if (pages[k].series && pages[k].sheet !== null) { prev = pages[k]; break; }
       for (let k = i + 1; k < pages.length; k++) if (pages[k].series && pages[k].sheet !== null) { nxt = pages[k]; break; }
       if (prev && prev.sheet < p.sheet && (!nxt || nxt.series !== prev.series || nxt.sheet > p.sheet)) p.series = prev.series;
       else if (nxt && nxt.sheet > p.sheet) p.series = nxt.series;
     });
+  }
+
+  /**
+   * The name as drawn on the schematics: OCR confuses 1/I and 0/O, so when the BOM text
+   * is not found but a look-alike spelling is, the look-alike is meant.
+   */
+  function resolveName(d, pages) {
+    if (pages.some((q) => q.tokens.has(d))) return d;
+    const swap = { 1: "I", I: "1", 0: "O", O: "0" };
+    const pos = [...d].map((c, i) => (swap[c] ? i : -1)).filter((i) => i >= 0).slice(0, 4);
+    for (let mask = 1; mask < 1 << pos.length; mask++) {
+      const c = [...d];
+      pos.forEach((i, k) => { if (mask & (1 << k)) c[i] = swap[c[i]]; });
+      const v = c.join("");
+      if (pages.some((q) => q.tokens.has(v))) return v;
+    }
+    return d;
+  }
+
+  const SYMBOL_OK = 0.9; // share of the BOM symbol's outline found next to the device
+  const SYMBOL_FLOOR = 0.35; // below this the drawing is not comparable at all (e.g. a picture)
+  // terminal blocks are pictured in the BOM but drawn as terminal strips on the sheets
+  const TERMINAL_BLOCK = /^(?:X|TB|XT)\d+$/;
+
+  /** The tag stands on its own in the line (not a terminal such as -TB01.W1 or X1:5). */
+  function standalone(ln, d) {
+    const t = compact(ln.text).toUpperCase();
+    for (let k = t.indexOf(d); k >= 0; k = t.indexOf(d, k + 1)) {
+      const before = k ? t[k - 1] : "", after = t[k + d.length] || "";
+      if (/[A-Z0-9]/.test(before) || /[A-Z0-9.:]/.test(after)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * For every BOM row and every listed sheet that shows one of its devices: is one of
+   * the parts of the BOM symbol drawn next to the device tag?  Work is grouped by sheet
+   * so that only one page raster is held at a time.
+   */
+  function symbolFindings(pages) {
+    const tasks = new Map(); // schematic page -> [{row, bomPage, names, lines}]
+    for (const p of pages) {
+      if (!p.pack) continue;
+      const sameSeries = pages.filter((q) => q.kind === "schematic" && q.series === p.series && q.sheet !== null && q.pack);
+      for (const row of p.bomRows) {
+        row.parts = row.parts || SC.symbolParts(p.pack, row.symbolBox).filter((pt) => Math.max(pt.box[2] - pt.box[0], pt.box[3] - pt.box[1]) >= 6).slice(0, 8);
+        if (!row.parts.length) continue;
+        for (const q of sameSeries) {
+          if (!row.sheets.includes(q.sheet)) continue;
+          const names = [];
+          for (const d0 of row.designations) {
+            const d = resolveName(d0, sameSeries);
+            if (TERMINAL_BLOCK.test(d)) continue;
+            const lines = (q.tokens.get(d) || []).filter((ln) => standalone(ln, d));
+            if (lines.length) names.push({ d, lines });
+          }
+          if (!names.length) continue;
+          if (!tasks.has(q)) tasks.set(q, []);
+          tasks.get(q).push({ row, bomPage: p, names });
+        }
+      }
+    }
+    const byRow = new Map(); // row -> mismatches on all its sheets
+    for (const [q, list] of tasks) {
+      for (const { row, bomPage, names } of list) {
+        for (const { d, lines } of names) {
+          let best = { score: 0, box: null, line: lines[0] };
+          for (const ln of lines.slice(0, 4)) {
+            for (const part of row.parts) {
+              const S = 2.2 * Math.max(part.box[2] - part.box[0], part.box[3] - part.box[1]) + 10;
+              const r = SC.matchPart(part, bomPage.pack, q.pack, [ln.x0 - S, ln.y0 - S, ln.x1 + S, ln.y1 + S]);
+              if (r.score > best.score) best = { score: r.score, box: r.box, line: ln };
+              if (best.score >= SYMBOL_OK) break;
+            }
+            if (best.score >= SYMBOL_OK) break;
+          }
+          if (best.score >= SYMBOL_OK || best.score < SYMBOL_FLOOR) continue;
+          if (!byRow.has(row)) byRow.set(row, { bomPage, bad: [] });
+          byRow.get(row).bad.push({ d, q, ...best });
+        }
+      }
+      SC.releaseRaster(q.pack);
+    }
+    const out = [];
+    for (const [row, { bomPage, bad }] of byRow) {
+      const names = [...new Set(bad.map((b) => b.d))];
+      const list = names.slice(0, 4).map((d) => `-${d}`).join(", ") + (names.length > 4 ? ` และอีก ${names.length - 4} ตัว` : "");
+      const sheets = [...new Set(bad.map((b) => b.q.sheet))].sort((a, b) => a - b).map(pad2).join(", ");
+      const pct = Math.round(100 * Math.max(...bad.map((b) => b.score)));
+      // the BOM symbol first, then the device tag it was compared with (one per sheet)
+      const marks = [mark(bomPage.index, row.symbolBox)];
+      const shown = new Set();
+      for (const b of bad) {
+        if (shown.has(b.q) || shown.size >= 6) continue;
+        shown.add(b.q);
+        marks.push(mark(b.q.index, bb(b.line, 2)));
+      }
+      out.push(finding("warning", "BOM_SYMBOL_MISMATCH",
+        `BOM: สัญลักษณ์ของ ${list} ใน SHEET ${sheets} ไม่ตรงกับช่อง SCHEMATIC DIAGRAM ของ BOM (เหมือนกันมากสุดประมาณ ${pct}%)`,
+        `เทียบสัญลักษณ์ในแบบกับใน BOM (ขั้ว จำนวนหน้าสัมผัส รูปแบบ) แล้วแก้ให้ตรงกัน`,
+        bomPage.index, bomPage.sheet, marks));
+    }
+    return out;
   }
 
   function check(pages) {
@@ -143,41 +247,55 @@
       }
     }
 
-    // 3) BOM: every designation must appear on (at least one of) the sheets listed in its row
+    // 3) BOM: every designation must appear on (at least one of) the sheets of each SHEET
+    //    cell of its row, and every listed sheet must show at least one of the row's devices
     const bomTags = new Set();
     for (const p of pages) {
       const bySheet = bySeries(p.index);
       const sameSeries = pages.filter((q) => q.kind === "schematic" && q.series === p.series && q.sheet !== null);
       for (const row of p.bomRows) {
-        const listed = row.sheets;
         const names = row.designations.slice(0, 4).join(", ") + (row.designations.length > 4 ? "..." : "");
-        for (const s of listed.filter((s) => !bySheet.get(s))) {
-          findings.push(finding("error", "BOM_SHEET_MISSING", `BOM: ${row.designations.slice(0, 4).join(", ")} ระบุ SHEET ${pad2(s)} ซึ่งไม่มีในชุดแบบ`,
-            `แก้เลข SHEET ${pad2(s)}`, p.index, p.sheet, row.sheetLines.map((ln) => mark(p.index, bb(ln)))));
+        const sheetMarks = (cell) => (cell ? cell.lines : row.sheetLines).map((ln) => mark(p.index, bb(ln)));
+        for (const s of row.sheets.filter((s) => !bySheet.get(s))) {
+          findings.push(finding("error", "BOM_SHEET_MISSING", `BOM: ${names} ระบุ SHEET ${pad2(s)} ซึ่งไม่มีในชุดแบบ`,
+            `แก้เลข SHEET ${pad2(s)}`, p.index, p.sheet, sheetMarks(row.cells.find((c) => c.sheets.includes(s)))));
         }
-        for (const d of row.designations) {
+        const split = row.cells.length > 1;
+        for (const d0 of row.designations) {
+          const d = resolveName(d0, sameSeries);
           bomTags.add(d);
           const foundOn = [...new Set(sameSeries.filter((q) => q.tokens.has(d)).map((q) => q.sheet))].sort((a, b) => a - b);
-          if (!listed.length || listed.some((s) => foundOn.includes(s))) continue;
-          const desigMarks = row.desigLines.filter((ln) => compact(ln.text).includes(d)).map((ln) => mark(p.index, bb(ln)));
-          if (foundOn.length) {
+          const desigMarks = row.desigLines.filter((ln) => compact(ln.text).includes(d0) || compact(ln.text).includes(d)).map((ln) => mark(p.index, bb(ln)));
+          if (!foundOn.length) {
+            if (row.sheets.length) {
+              findings.push(finding("warning", "BOM_NOT_FOUND", `BOM: ไม่พบ -${d} ใน SHEET ${row.sheets.map(pad2).join(", ")} (และไม่พบในหน้าอื่น)`,
+                `ตรวจสอบชื่ออุปกรณ์ ${d} ในแบบ`, p.index, p.sheet, desigMarks.length ? desigMarks : row.desigLines.map((ln) => mark(p.index, bb(ln)))));
+            }
+            continue;
+          }
+          for (const cell of row.cells) {
+            if (cell.sheets.some((s) => foundOn.includes(s))) continue;
             const where = foundOn.map(pad2).join(", ");
-            findings.push(finding("error", "BOM_NOT_ON_SHEET", `BOM: ${d} ระบุ SHEET ${listed.map(pad2).join(", ")} แต่พบ -${d} ที่ SHEET ${where}`,
-              `แก้ช่อง SHEET ของ ${d} เป็น ${where}`, p.index, p.sheet, desigMarks.concat(row.sheetLines.map((ln) => mark(p.index, bb(ln))))));
-          } else {
-            findings.push(finding("warning", "BOM_NOT_FOUND", `BOM: ไม่พบ -${d} ใน SHEET ${listed.map(pad2).join(", ")} (และไม่พบในหน้าอื่น)`,
-              `ตรวจสอบชื่ออุปกรณ์ ${d} ในแบบ`, p.index, p.sheet, desigMarks));
+            const part = split ? ` (ช่อง SHEET ${cell.sheets.map(pad2).join(", ")})` : "";
+            findings.push(finding("error", "BOM_NOT_ON_SHEET", `BOM: ${d} ระบุ SHEET ${cell.sheets.map(pad2).join(", ")}${part ? " สำหรับสัญลักษณ์ส่วนนั้น" : ""} แต่พบ -${d} ที่ SHEET ${where}`,
+              `แก้ช่อง SHEET ของ ${d}${part} หรือตรวจชื่อ -${d} ในแบบ SHEET ${cell.sheets.map(pad2).join(", ")}`,
+              p.index, p.sheet, desigMarks.concat(sheetMarks(cell))));
           }
         }
-        for (const s of listed) {
-          const q = bySheet.get(s);
-          if (q && !row.designations.some((d) => q.tokens.has(d))) {
-            findings.push(finding("warning", "BOM_SHEET_UNUSED", `BOM: SHEET ${pad2(s)} ไม่มีอุปกรณ์ในแถวนี้ (${names})`,
-              `ตรวจสอบเลข SHEET ${pad2(s)}`, p.index, p.sheet, row.sheetLines.map((ln) => mark(p.index, bb(ln)))));
+        for (const cell of row.cells) {
+          for (const s of cell.sheets) {
+            const q = bySheet.get(s);
+            if (q && !row.designations.some((d) => q.tokens.has(resolveName(d, sameSeries)))) {
+              findings.push(finding("warning", "BOM_SHEET_UNUSED", `BOM: SHEET ${pad2(s)} ไม่มีอุปกรณ์ในแถวนี้ (${names})`,
+                `ตรวจสอบเลข SHEET ${pad2(s)} หรือชื่ออุปกรณ์ในแบบ SHEET ${pad2(s)}`, p.index, p.sheet, sheetMarks(cell)));
+            }
           }
         }
       }
     }
+
+    // 3b) BOM symbols: the symbol of the row must be the one drawn next to the device
+    findings.push(...symbolFindings(pages));
 
     // 4) coils on schematics that the BOM does not list (only when a BOM exists)
     if (bomTags.size) {

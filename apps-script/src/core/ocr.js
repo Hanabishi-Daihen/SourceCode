@@ -12,6 +12,8 @@
   const NEUTRAL = new Set(["|", "-", "/", "X", "x", "+", "."]);
   const BRIDGE = new Set(["X", "x", "+"]);
   const SAME_CASE = new Set([..."cosuvwxz"]);
+  // look the same turned upside down, so a vertical one can come out in either direction
+  const SYM180 = new Set([..."0OoHINSZXxsz8"]);
 
   class TextLine {
     constructor(text, rot, x0, y0, x1, y1, height, glyphs) {
@@ -75,7 +77,11 @@
     if (!core.size) return [];
     // symmetric characters may bridge two parts of a line, but never start one on their own
     const seedSet = new Set(core);
-    glyphs.forEach((g, i) => { if (!taken.has(i) && BRIDGE.has(g.ch) && (g.rot === 0 || g.rot === rot)) seedSet.add(i); });
+    glyphs.forEach((g, i) => {
+      if (taken.has(i)) return;
+      if (BRIDGE.has(g.ch) && (g.rot === 0 || g.rot === rot)) seedSet.add(i);
+      else if (rot !== 0 && SYM180.has(g.ch) && g.rot === 4 - rot) seedSet.add(i);
+    });
     const seeds = [...seedSet];
     const parent = new Map(seeds.map((i) => [i, i]));
     const find = (i) => {
@@ -153,7 +159,9 @@
       const [u0, v0, u1, v1] = fb[i];
       let ch = g.rot !== rot || NEUTRAL.has(g.ch) ? neutralChar(g.ch, rot) : g.ch;
       const w = u1 - u0, h = v1 - v0;
-      if ((ch === "|" || ch === "-" || ch === "/") && w < 0.3 * H && h < 0.3 * H) ch = ".";
+      if ((ch === "|" || ch === "-" || ch === "/") && w < 0.3 * H && h < 0.3 * H) ch = ch === "/" && v1 > base - 0.05 * H && h > 0.12 * H ? "," : ".";
+      // a bar reaching above and below the capitals is a bracket ("(G, R)" in this font)
+      if (ch === "|" && h > 1.1 * H && v0 < top - 0.04 * H && v1 > base + 0.04 * H) ch = "\u0001";
       if (ch === "|" || ch === "-") {
         if (h >= 0.6 * H && w < 0.3 * H) ch = "|";
         else if (h < 0.25 * H) ch = (v0 + v1) / 2 > base - 0.15 * H ? "_" : "-";
@@ -171,7 +179,7 @@
       prevU1 = prevU1 === null ? u1 : Math.max(prevU1, u1);
       prevW = w;
     }
-    const text = fixDigits(fixBars(out.join("")));
+    const text = fixDigits(fixBars(brackets(out.join(""))));
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const i of members) {
       const g = glyphs[i];
@@ -181,6 +189,18 @@
   }
 
   const isAlpha = (c) => /\p{L}/u.test(c);
+
+  /** Tall bars marked as brackets open before a word and close after one. */
+  function brackets(text) {
+    const c = [...text];
+    for (let k = 0; k < c.length; k++) {
+      if (c[k] !== "\u0001") continue;
+      const prev = k ? c[k - 1] : " ", nxt = k + 1 < c.length ? c[k + 1] : " ";
+      const word = (ch) => /[\p{L}\p{N}]/u.test(ch);
+      c[k] = word(nxt) && !word(prev) ? "(" : word(prev) && !word(nxt) ? ")" : "|";
+    }
+    return c.join("");
+  }
   const isDigit = (c) => c >= "0" && c <= "9";
 
   /** A bare vertical bar is '1' among digits and 'I' before letters. */

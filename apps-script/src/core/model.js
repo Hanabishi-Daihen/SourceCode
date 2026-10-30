@@ -171,21 +171,27 @@
     return best ? best[1] : null;
   }
 
+  // "DRAWING NO." of the title block; the "NO." is often read as a separate word
+  const isDwgLabel = (ln, h) => ln.rot === 0 && ln.cy > 0.75 * h && /^DRAWING(NO\.?)?$/.test(compact(ln.text));
+
   function findDrawingNumber(lines, w, h) {
-    const labels = lines.filter((ln) => compact(ln.text).startsWith("DRAWINGNO") && ln.cy > 0.75 * h);
-    if (!labels.length) return [null, null];
-    const lab = labels.reduce((a, b) => (b.cy > a.cy ? b : a));
-    const H = lab.height;
-    const desc = lines.filter((ln) => compact(ln.text) === "DESCRIPTION" && Math.abs(ln.cy - lab.cy) < H && ln.x0 > lab.x1).map((ln) => ln.x0);
-    const right = desc.length ? Math.min(...desc) : lab.x1 + 60 * H;
-    let parts = lines.filter((ln) => ln.rot === 0 && ln.cy - lab.cy > 0 && ln.cy - lab.cy < 3 * H && ln.cx > lab.x0 - 3 * H && ln.cx < right);
-    if (!parts.length) return [null, null];
-    const row = parts.reduce((a, b) => (b.cy < a.cy ? b : a)).cy;
-    parts = parts.filter((ln) => Math.abs(ln.cy - row) < 0.6 * H).sort((a, b) => a.x0 - b.x0);
-    const text = parts.map((ln) => compact(ln.text)).join("");
-    const m = /^(.+?)-?(\d{1,3})$/.exec(text);
-    if (!m) return [text || null, null];
-    return [m[1].replace(/-+$/, ""), parseInt(m[2], 10)];
+    const labels = lines.filter((ln) => isDwgLabel(ln, h)).sort((a, b) => b.cy - a.cy);
+    for (const lab of labels) {
+      const H = lab.height;
+      const desc = lines.filter((ln) => compact(ln.text) === "DESCRIPTION" && Math.abs(ln.cy - lab.cy) < H && ln.x0 > lab.x1).map((ln) => ln.x0);
+      const right = desc.length ? Math.min(...desc) : lab.x1 + 60 * H;
+      let parts = lines.filter((ln) => ln.rot === 0 && ln.cy - lab.cy > 0 && ln.cy - lab.cy < 3 * H && ln.cx > lab.x0 - 3 * H && ln.cx < right);
+      if (!parts.length) continue;
+      const row = parts.reduce((a, b) => (b.cy < a.cy ? b : a)).cy;
+      parts = parts.filter((ln) => Math.abs(ln.cy - row) < 0.6 * H).sort((a, b) => a.x0 - b.x0);
+      const text = parts.map((ln) => compact(ln.text)).join("");
+      // drawing numbers look like CD-PP1005B-4S-02; anything else is another field
+      if (!/^[A-Z]{1,4}-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(text)) continue;
+      const m = /^(.+?)-?(\d{1,3})$/.exec(text);
+      if (!m) return [text, null];
+      return [m[1].replace(/-+$/, ""), parseInt(m[2], 10)];
+    }
+    return [null, null];
   }
 
   // --- real text from pdf.js -----------------------------------------------------
@@ -266,6 +272,19 @@
       if (tok.includes(".")) out.add(tok.split(".")[0]); // terminal X3.26 -> strip X3
       if (tok.includes("/")) out.add(tok.split("/")[0]);
       if (tok.length > 2 && tok.endsWith("E")) out.add(tok.slice(0, -1)); // push-button symbol 'E'
+    }
+    // an O between the letters and the number of a name is a zero (TBO1 -> TB01)
+    for (const tok of [...out]) {
+      const z = tok.replace(/([A-Z])O(?=\d)/g, "$10");
+      if (z !== tok) out.add(z);
+    }
+    // "-47", "-51-1", "-CPU-I": device names after a dash, digits only or hyphenated
+    const re = /(?:^|[^0-9A-Z])-([0-9A-Z]+(?:-[0-9A-Z]+)*)/g;
+    const up = compact(text.toUpperCase());
+    let m;
+    while ((m = re.exec(up))) {
+      out.add(m[1]);
+      for (let k = m[1].indexOf("-"); k > 0; k = m[1].indexOf("-", k + 1)) out.add(m[1].slice(0, k));
     }
     return out;
   }
@@ -540,6 +559,11 @@
     return out;
   }
 
+  /**
+   * BOM tables: one row per SHEET label.  A row has its designations, the symbol drawn in
+   * the SCHEMATIC DIAGRAM cell, and one or more SHEET cells: when the SHEET row is split
+   * by short rules ("07 | 05 | 07") each cell holds the sheets of the symbol part above it.
+   */
   function parseBom(info, strokes) {
     const heads = wordBoxes(info.lines, "DESIGNATION");
     for (const ln of info.lines) {
@@ -547,7 +571,8 @@
         heads.push({ x0: ln.x0, y0: ln.y0, x1: ln.x1, y1: ln.y1 });
       }
     }
-    const rules = [...new Set(strokes.filter((st) => Math.abs(st.x1 - st.x0) < 0.2 && st.y1 - st.y0 > 0.25 * info.height).map((st) => r1(st.x0)))].sort((a, b) => a - b);
+    const vert = strokes.filter((st) => Math.abs(st.x1 - st.x0) < 0.2);
+    const rules = [...new Set(vert.filter((st) => st.y1 - st.y0 > 0.25 * info.height).map((st) => r1(st.x0)))].sort((a, b) => a - b);
     const out = [];
     for (const hd of heads) {
       const cx = (hd.x0 + hd.x1) / 2;
@@ -565,14 +590,25 @@
       let prevY = hd.y1;
       for (const lab of sheetLabels) {
         const H = lab.height;
-        const nums = info.lines.filter((ln) => ln !== lab && Math.abs(ln.cy - lab.cy) < 0.6 * H && ln.x0 > lab.x1 && ln.x0 < tableEnd);
-        const sheets = [];
-        for (const ln of nums) sheets.push(...parseSheetList(ln.text));
         const desig = info.lines.filter((ln) => ln.cx > col0 && ln.cx < col1 && ln.cy > prevY && ln.cy < lab.y1 && ln.rot === 0);
-        const designations = [];
-        for (const ln of desig.slice().sort((a, b) => a.cy - b.cy || a.x0 - b.x0)) designations.push(...parseDesignations(ln.text));
+        const designations = parseDesignations(designationText(desig));
+        const nums = info.lines.filter((ln) => ln !== lab && Math.abs(ln.cy - lab.cy) < 0.6 * H && ln.x0 > lab.x1 && ln.x0 < tableEnd);
+        // short rules inside the SHEET row split it into cells
+        const splits = [...new Set(vert.filter((st) => st.y0 < lab.cy && st.y1 > lab.cy && st.y1 - st.y0 < 4 * H &&
+          st.x0 > lab.x1 + 0.5 && st.x0 < tableEnd - 2).map((st) => r1(st.x0)))].sort((a, b) => a - b);
+        const bounds = [col1].concat(splits.slice(1), [tableEnd]); // splits[0] closes the "SHEET" label cell
+        const cells = [];
+        for (let k = 0; k + 1 < bounds.length; k++) {
+          const lines = nums.filter((ln) => ln.cx > bounds[k] && ln.cx < bounds[k + 1]);
+          const sheets = [...new Set(lines.flatMap((ln) => parseSheetList(ln.text)))].sort((a, b) => a - b);
+          if (sheets.length) cells.push({ sheets, lines, x0: bounds[k], x1: bounds[k + 1] });
+        }
         if (designations.length) {
-          out.push({ page: info.index, designations, sheets: [...new Set(sheets)].sort((a, b) => a - b), desigLines: desig, sheetLines: nums });
+          const sheets = [...new Set(cells.flatMap((c) => c.sheets))].sort((a, b) => a - b);
+          out.push({
+            page: info.index, designations, sheets, cells, desigLines: desig, sheetLines: nums,
+            symbolBox: [col1, prevY, tableEnd, lab.y0],
+          });
         }
         prevY = lab.y1;
       }
@@ -580,9 +616,25 @@
     return out;
   }
 
+  /** The designation cell as one string: rows in reading order, a trailing '-' continues a range. */
+  function designationText(lines) {
+    if (!lines.length) return "";
+    const Hs = lines.map((ln) => ln.height).sort((a, b) => a - b);
+    const H = Hs[Math.floor(Hs.length / 2)];
+    // drop revision letters in their small triangles and other notes in smaller text
+    const keep = lines.filter((ln) => !(compact(ln.text).length <= 1 && ln.height < 0.85 * H));
+    keep.sort((a, b) => (Math.abs(a.cy - b.cy) < 0.5 * H ? a.x0 - b.x0 : a.cy - b.cy));
+    let text = "";
+    for (const ln of keep) {
+      const t = ln.text.trim();
+      text = !text ? t : /-$/.test(text) ? text + t : `${text}, ${t}`;
+    }
+    return text;
+  }
+
   function parseSheetList(text) {
     const out = [];
-    for (const part of text.split(/[,.\s]+/)) {
+    for (const part of text.replace(/\s*-\s*/g, "-").split(/[,.\s]+/)) {
       const m = /^(\d{1,3})-(\d{1,3})$/.exec(part);
       if (m) {
         const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
@@ -593,18 +645,27 @@
   }
 
   function parseDesignations(text) {
+    const t = text.toUpperCase()
+      .replace(/\([^)]*\)?/g, " ") // notes such as lamp colours "(G, R, BK)"
+      .replace(/\s*-\s*/g, "-"); // "PSU8 - PSU9"
     const out = [];
-    for (let part of text.trim().split(/[,.\s]+/)) {
+    for (let part of t.split(/[,.;\s]+/)) {
       part = part.replace(/^-+|-+$/g, "");
       if (!part) continue;
-      const m = /^([0-9]*[A-Z]+)(\d+)-(?:\1)?(\d+)$/.exec(part);
-      if (m) {
-        const a = parseInt(m[2], 10), b = parseInt(m[3], 10);
-        if (a <= b && b <= a + 200) { for (let k = a; k <= b; k++) out.push(`${m[1]}${k}`); continue; }
+      // ranges: KL1-KL10, TB01-TB03 (zero padding kept), QM1-10
+      const m = /^([0-9]*[A-Z][A-Z0-9]*?)(\d+)-([0-9]*[A-Z][A-Z0-9]*?)?(\d+)$/.exec(part);
+      if (m && (!m[3] || m[3] === m[1])) {
+        const a = parseInt(m[2], 10), b = parseInt(m[4], 10);
+        const width = m[2].length === m[4].length ? m[2].length : 0;
+        if (a < b && b <= a + 200) {
+          for (let k = a; k <= b; k++) out.push(m[1] + String(k).padStart(width, "0"));
+          continue;
+        }
       }
-      if (/^[0-9]*[A-Z][A-Z0-9]*$/.test(part) && !/^\d+$/.test(part)) out.push(part);
+      // plain names, also numeric device numbers (47, 90) and hyphenated ones (51-1, CPU-I)
+      if (/^[0-9A-Z]+(?:-[0-9A-Z]+)*$/.test(part) && (/[A-Z]/.test(part) || /^\d{2,3}(?:-\d{1,2})?$/.test(part))) out.push(part);
     }
-    return out;
+    return [...new Set(out)];
   }
 
   // --- page ----------------------------------------------------------------------
@@ -628,6 +689,8 @@
     else kind = "other";
     const info = {
       index, width: w, height: h, sheet, series, kind, grid, lines,
+      // our own title block (vendor drawings bound into the set have their own numbering)
+      titled: lines.some((ln) => isDwgLabel(ln, h)),
       coils: [], contacts: [], bomRows: [], tags: new Map(), tokens: new Map(),
       zoneOf(x, y) {
         const z = grid.zone(x, y);
@@ -640,6 +703,13 @@
         info.tokens.get(tok).push(ln);
       }
     }
+    // strokes kept compact for the symbol comparison of the BOM check; text is flagged so
+    // that terminal numbers do not take part in it
+    for (const ln of lines) {
+      const many = compact(ln.text).length > 1;
+      for (const g of ln.glyphs) if (many || !"|-/.,_·".includes(g.ch)) for (const st of g.atom.strokes) st.text = true;
+    }
+    if (kind === "bom" || kind === "schematic") info.pack = SC.packSegments(strokes);
     if (kind === "bom") info.bomRows = parseBom(info, strokes);
     else if (kind === "schematic") parseSchematic(info, strokes);
     return info;
@@ -649,5 +719,5 @@
   SC.analysePage = analysePage;
   SC.zkey = zkey;
   SC.pad2 = pad2;
-  SC._test = { parseDesignations, parseSheetList, tagsIn, tokens };
+  SC._test = { parseDesignations, parseSheetList, designationText, tagsIn, tokens };
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));

@@ -460,6 +460,8 @@
   const NEUTRAL = new Set(["|", "-", "/", "X", "x", "+", "."]);
   const BRIDGE = new Set(["X", "x", "+"]);
   const SAME_CASE = new Set([..."cosuvwxz"]);
+  // look the same turned upside down, so a vertical one can come out in either direction
+  const SYM180 = new Set([..."0OoHINSZXxsz8"]);
 
   class TextLine {
     constructor(text, rot, x0, y0, x1, y1, height, glyphs) {
@@ -523,7 +525,11 @@
     if (!core.size) return [];
     // symmetric characters may bridge two parts of a line, but never start one on their own
     const seedSet = new Set(core);
-    glyphs.forEach((g, i) => { if (!taken.has(i) && BRIDGE.has(g.ch) && (g.rot === 0 || g.rot === rot)) seedSet.add(i); });
+    glyphs.forEach((g, i) => {
+      if (taken.has(i)) return;
+      if (BRIDGE.has(g.ch) && (g.rot === 0 || g.rot === rot)) seedSet.add(i);
+      else if (rot !== 0 && SYM180.has(g.ch) && g.rot === 4 - rot) seedSet.add(i);
+    });
     const seeds = [...seedSet];
     const parent = new Map(seeds.map((i) => [i, i]));
     const find = (i) => {
@@ -601,7 +607,9 @@
       const [u0, v0, u1, v1] = fb[i];
       let ch = g.rot !== rot || NEUTRAL.has(g.ch) ? neutralChar(g.ch, rot) : g.ch;
       const w = u1 - u0, h = v1 - v0;
-      if ((ch === "|" || ch === "-" || ch === "/") && w < 0.3 * H && h < 0.3 * H) ch = ".";
+      if ((ch === "|" || ch === "-" || ch === "/") && w < 0.3 * H && h < 0.3 * H) ch = ch === "/" && v1 > base - 0.05 * H && h > 0.12 * H ? "," : ".";
+      // a bar reaching above and below the capitals is a bracket ("(G, R)" in this font)
+      if (ch === "|" && h > 1.1 * H && v0 < top - 0.04 * H && v1 > base + 0.04 * H) ch = "\u0001";
       if (ch === "|" || ch === "-") {
         if (h >= 0.6 * H && w < 0.3 * H) ch = "|";
         else if (h < 0.25 * H) ch = (v0 + v1) / 2 > base - 0.15 * H ? "_" : "-";
@@ -619,7 +627,7 @@
       prevU1 = prevU1 === null ? u1 : Math.max(prevU1, u1);
       prevW = w;
     }
-    const text = fixDigits(fixBars(out.join("")));
+    const text = fixDigits(fixBars(brackets(out.join(""))));
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const i of members) {
       const g = glyphs[i];
@@ -629,6 +637,18 @@
   }
 
   const isAlpha = (c) => /\p{L}/u.test(c);
+
+  /** Tall bars marked as brackets open before a word and close after one. */
+  function brackets(text) {
+    const c = [...text];
+    for (let k = 0; k < c.length; k++) {
+      if (c[k] !== "\u0001") continue;
+      const prev = k ? c[k - 1] : " ", nxt = k + 1 < c.length ? c[k + 1] : " ";
+      const word = (ch) => /[\p{L}\p{N}]/u.test(ch);
+      c[k] = word(nxt) && !word(prev) ? "(" : word(prev) && !word(nxt) ? ")" : "|";
+    }
+    return c.join("");
+  }
   const isDigit = (c) => c >= "0" && c <= "9";
 
   /** A bare vertical bar is '1' among digits and 'I' before letters. */
@@ -886,21 +906,27 @@
     return best ? best[1] : null;
   }
 
+  // "DRAWING NO." of the title block; the "NO." is often read as a separate word
+  const isDwgLabel = (ln, h) => ln.rot === 0 && ln.cy > 0.75 * h && /^DRAWING(NO\.?)?$/.test(compact(ln.text));
+
   function findDrawingNumber(lines, w, h) {
-    const labels = lines.filter((ln) => compact(ln.text).startsWith("DRAWINGNO") && ln.cy > 0.75 * h);
-    if (!labels.length) return [null, null];
-    const lab = labels.reduce((a, b) => (b.cy > a.cy ? b : a));
-    const H = lab.height;
-    const desc = lines.filter((ln) => compact(ln.text) === "DESCRIPTION" && Math.abs(ln.cy - lab.cy) < H && ln.x0 > lab.x1).map((ln) => ln.x0);
-    const right = desc.length ? Math.min(...desc) : lab.x1 + 60 * H;
-    let parts = lines.filter((ln) => ln.rot === 0 && ln.cy - lab.cy > 0 && ln.cy - lab.cy < 3 * H && ln.cx > lab.x0 - 3 * H && ln.cx < right);
-    if (!parts.length) return [null, null];
-    const row = parts.reduce((a, b) => (b.cy < a.cy ? b : a)).cy;
-    parts = parts.filter((ln) => Math.abs(ln.cy - row) < 0.6 * H).sort((a, b) => a.x0 - b.x0);
-    const text = parts.map((ln) => compact(ln.text)).join("");
-    const m = /^(.+?)-?(\d{1,3})$/.exec(text);
-    if (!m) return [text || null, null];
-    return [m[1].replace(/-+$/, ""), parseInt(m[2], 10)];
+    const labels = lines.filter((ln) => isDwgLabel(ln, h)).sort((a, b) => b.cy - a.cy);
+    for (const lab of labels) {
+      const H = lab.height;
+      const desc = lines.filter((ln) => compact(ln.text) === "DESCRIPTION" && Math.abs(ln.cy - lab.cy) < H && ln.x0 > lab.x1).map((ln) => ln.x0);
+      const right = desc.length ? Math.min(...desc) : lab.x1 + 60 * H;
+      let parts = lines.filter((ln) => ln.rot === 0 && ln.cy - lab.cy > 0 && ln.cy - lab.cy < 3 * H && ln.cx > lab.x0 - 3 * H && ln.cx < right);
+      if (!parts.length) continue;
+      const row = parts.reduce((a, b) => (b.cy < a.cy ? b : a)).cy;
+      parts = parts.filter((ln) => Math.abs(ln.cy - row) < 0.6 * H).sort((a, b) => a.x0 - b.x0);
+      const text = parts.map((ln) => compact(ln.text)).join("");
+      // drawing numbers look like CD-PP1005B-4S-02; anything else is another field
+      if (!/^[A-Z]{1,4}-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(text)) continue;
+      const m = /^(.+?)-?(\d{1,3})$/.exec(text);
+      if (!m) return [text, null];
+      return [m[1].replace(/-+$/, ""), parseInt(m[2], 10)];
+    }
+    return [null, null];
   }
 
   // --- real text from pdf.js -----------------------------------------------------
@@ -981,6 +1007,19 @@
       if (tok.includes(".")) out.add(tok.split(".")[0]); // terminal X3.26 -> strip X3
       if (tok.includes("/")) out.add(tok.split("/")[0]);
       if (tok.length > 2 && tok.endsWith("E")) out.add(tok.slice(0, -1)); // push-button symbol 'E'
+    }
+    // an O between the letters and the number of a name is a zero (TBO1 -> TB01)
+    for (const tok of [...out]) {
+      const z = tok.replace(/([A-Z])O(?=\d)/g, "$10");
+      if (z !== tok) out.add(z);
+    }
+    // "-47", "-51-1", "-CPU-I": device names after a dash, digits only or hyphenated
+    const re = /(?:^|[^0-9A-Z])-([0-9A-Z]+(?:-[0-9A-Z]+)*)/g;
+    const up = compact(text.toUpperCase());
+    let m;
+    while ((m = re.exec(up))) {
+      out.add(m[1]);
+      for (let k = m[1].indexOf("-"); k > 0; k = m[1].indexOf("-", k + 1)) out.add(m[1].slice(0, k));
     }
     return out;
   }
@@ -1255,6 +1294,11 @@
     return out;
   }
 
+  /**
+   * BOM tables: one row per SHEET label.  A row has its designations, the symbol drawn in
+   * the SCHEMATIC DIAGRAM cell, and one or more SHEET cells: when the SHEET row is split
+   * by short rules ("07 | 05 | 07") each cell holds the sheets of the symbol part above it.
+   */
   function parseBom(info, strokes) {
     const heads = wordBoxes(info.lines, "DESIGNATION");
     for (const ln of info.lines) {
@@ -1262,7 +1306,8 @@
         heads.push({ x0: ln.x0, y0: ln.y0, x1: ln.x1, y1: ln.y1 });
       }
     }
-    const rules = [...new Set(strokes.filter((st) => Math.abs(st.x1 - st.x0) < 0.2 && st.y1 - st.y0 > 0.25 * info.height).map((st) => r1(st.x0)))].sort((a, b) => a - b);
+    const vert = strokes.filter((st) => Math.abs(st.x1 - st.x0) < 0.2);
+    const rules = [...new Set(vert.filter((st) => st.y1 - st.y0 > 0.25 * info.height).map((st) => r1(st.x0)))].sort((a, b) => a - b);
     const out = [];
     for (const hd of heads) {
       const cx = (hd.x0 + hd.x1) / 2;
@@ -1280,14 +1325,25 @@
       let prevY = hd.y1;
       for (const lab of sheetLabels) {
         const H = lab.height;
-        const nums = info.lines.filter((ln) => ln !== lab && Math.abs(ln.cy - lab.cy) < 0.6 * H && ln.x0 > lab.x1 && ln.x0 < tableEnd);
-        const sheets = [];
-        for (const ln of nums) sheets.push(...parseSheetList(ln.text));
         const desig = info.lines.filter((ln) => ln.cx > col0 && ln.cx < col1 && ln.cy > prevY && ln.cy < lab.y1 && ln.rot === 0);
-        const designations = [];
-        for (const ln of desig.slice().sort((a, b) => a.cy - b.cy || a.x0 - b.x0)) designations.push(...parseDesignations(ln.text));
+        const designations = parseDesignations(designationText(desig));
+        const nums = info.lines.filter((ln) => ln !== lab && Math.abs(ln.cy - lab.cy) < 0.6 * H && ln.x0 > lab.x1 && ln.x0 < tableEnd);
+        // short rules inside the SHEET row split it into cells
+        const splits = [...new Set(vert.filter((st) => st.y0 < lab.cy && st.y1 > lab.cy && st.y1 - st.y0 < 4 * H &&
+          st.x0 > lab.x1 + 0.5 && st.x0 < tableEnd - 2).map((st) => r1(st.x0)))].sort((a, b) => a - b);
+        const bounds = [col1].concat(splits.slice(1), [tableEnd]); // splits[0] closes the "SHEET" label cell
+        const cells = [];
+        for (let k = 0; k + 1 < bounds.length; k++) {
+          const lines = nums.filter((ln) => ln.cx > bounds[k] && ln.cx < bounds[k + 1]);
+          const sheets = [...new Set(lines.flatMap((ln) => parseSheetList(ln.text)))].sort((a, b) => a - b);
+          if (sheets.length) cells.push({ sheets, lines, x0: bounds[k], x1: bounds[k + 1] });
+        }
         if (designations.length) {
-          out.push({ page: info.index, designations, sheets: [...new Set(sheets)].sort((a, b) => a - b), desigLines: desig, sheetLines: nums });
+          const sheets = [...new Set(cells.flatMap((c) => c.sheets))].sort((a, b) => a - b);
+          out.push({
+            page: info.index, designations, sheets, cells, desigLines: desig, sheetLines: nums,
+            symbolBox: [col1, prevY, tableEnd, lab.y0],
+          });
         }
         prevY = lab.y1;
       }
@@ -1295,9 +1351,25 @@
     return out;
   }
 
+  /** The designation cell as one string: rows in reading order, a trailing '-' continues a range. */
+  function designationText(lines) {
+    if (!lines.length) return "";
+    const Hs = lines.map((ln) => ln.height).sort((a, b) => a - b);
+    const H = Hs[Math.floor(Hs.length / 2)];
+    // drop revision letters in their small triangles and other notes in smaller text
+    const keep = lines.filter((ln) => !(compact(ln.text).length <= 1 && ln.height < 0.85 * H));
+    keep.sort((a, b) => (Math.abs(a.cy - b.cy) < 0.5 * H ? a.x0 - b.x0 : a.cy - b.cy));
+    let text = "";
+    for (const ln of keep) {
+      const t = ln.text.trim();
+      text = !text ? t : /-$/.test(text) ? text + t : `${text}, ${t}`;
+    }
+    return text;
+  }
+
   function parseSheetList(text) {
     const out = [];
-    for (const part of text.split(/[,.\s]+/)) {
+    for (const part of text.replace(/\s*-\s*/g, "-").split(/[,.\s]+/)) {
       const m = /^(\d{1,3})-(\d{1,3})$/.exec(part);
       if (m) {
         const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
@@ -1308,18 +1380,27 @@
   }
 
   function parseDesignations(text) {
+    const t = text.toUpperCase()
+      .replace(/\([^)]*\)?/g, " ") // notes such as lamp colours "(G, R, BK)"
+      .replace(/\s*-\s*/g, "-"); // "PSU8 - PSU9"
     const out = [];
-    for (let part of text.trim().split(/[,.\s]+/)) {
+    for (let part of t.split(/[,.;\s]+/)) {
       part = part.replace(/^-+|-+$/g, "");
       if (!part) continue;
-      const m = /^([0-9]*[A-Z]+)(\d+)-(?:\1)?(\d+)$/.exec(part);
-      if (m) {
-        const a = parseInt(m[2], 10), b = parseInt(m[3], 10);
-        if (a <= b && b <= a + 200) { for (let k = a; k <= b; k++) out.push(`${m[1]}${k}`); continue; }
+      // ranges: KL1-KL10, TB01-TB03 (zero padding kept), QM1-10
+      const m = /^([0-9]*[A-Z][A-Z0-9]*?)(\d+)-([0-9]*[A-Z][A-Z0-9]*?)?(\d+)$/.exec(part);
+      if (m && (!m[3] || m[3] === m[1])) {
+        const a = parseInt(m[2], 10), b = parseInt(m[4], 10);
+        const width = m[2].length === m[4].length ? m[2].length : 0;
+        if (a < b && b <= a + 200) {
+          for (let k = a; k <= b; k++) out.push(m[1] + String(k).padStart(width, "0"));
+          continue;
+        }
       }
-      if (/^[0-9]*[A-Z][A-Z0-9]*$/.test(part) && !/^\d+$/.test(part)) out.push(part);
+      // plain names, also numeric device numbers (47, 90) and hyphenated ones (51-1, CPU-I)
+      if (/^[0-9A-Z]+(?:-[0-9A-Z]+)*$/.test(part) && (/[A-Z]/.test(part) || /^\d{2,3}(?:-\d{1,2})?$/.test(part))) out.push(part);
     }
-    return out;
+    return [...new Set(out)];
   }
 
   // --- page ----------------------------------------------------------------------
@@ -1343,6 +1424,8 @@
     else kind = "other";
     const info = {
       index, width: w, height: h, sheet, series, kind, grid, lines,
+      // our own title block (vendor drawings bound into the set have their own numbering)
+      titled: lines.some((ln) => isDwgLabel(ln, h)),
       coils: [], contacts: [], bomRows: [], tags: new Map(), tokens: new Map(),
       zoneOf(x, y) {
         const z = grid.zone(x, y);
@@ -1355,6 +1438,13 @@
         info.tokens.get(tok).push(ln);
       }
     }
+    // strokes kept compact for the symbol comparison of the BOM check; text is flagged so
+    // that terminal numbers do not take part in it
+    for (const ln of lines) {
+      const many = compact(ln.text).length > 1;
+      for (const g of ln.glyphs) if (many || !"|-/.,_·".includes(g.ch)) for (const st of g.atom.strokes) st.text = true;
+    }
+    if (kind === "bom" || kind === "schematic") info.pack = SC.packSegments(strokes);
     if (kind === "bom") info.bomRows = parseBom(info, strokes);
     else if (kind === "schematic") parseSchematic(info, strokes);
     return info;
@@ -1364,7 +1454,271 @@
   SC.analysePage = analysePage;
   SC.zkey = zkey;
   SC.pad2 = pad2;
-  SC._test = { parseDesignations, parseSheetList, tagsIn, tokens };
+  SC._test = { parseDesignations, parseSheetList, designationText, tagsIn, tokens };
+})(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));
+
+/* Symbol comparison: is the symbol drawn in a BOM row the one drawn next to the device?
+ *
+ * The BOM shows each device's symbol, usually the same block as on the schematic but
+ * inserted at another scale.  A part of the BOM drawing (a breaker body, a coil, a
+ * contact) is located near the device tag by pairing its long strokes with strokes of
+ * the same direction there, which fixes scale and offset; each such placement is scored
+ * by the share of the part's outline that lands on schematic strokes.
+ */
+(function (SC) {
+  "use strict";
+
+  const CELL = 24; // pt, segment index cell
+  const STEP = 0.5; // pt, spacing of the sample points along the part's strokes
+  const RES = 2; // px per pt of the schematic raster used for scoring
+
+  /** Page strokes as a flat segment list (text strokes flagged) with a coarse grid index. */
+  function packSegments(strokes) {
+    let n = 0;
+    for (const s of strokes) n += Math.max(1, s.pts.length - 1);
+    const segs = new Float32Array(4 * n);
+    const text = new Uint8Array(n);
+    let k = 0;
+    for (const s of strokes) {
+      const p = s.pts;
+      const t = s.text ? 1 : 0;
+      if (p.length === 1) { text[k / 4] = t; segs.set([p[0][0], p[0][1], p[0][0], p[0][1]], k); k += 4; continue; }
+      for (let i = 0; i + 1 < p.length; i++) {
+        text[k / 4] = t;
+        segs[k++] = p[i][0]; segs[k++] = p[i][1]; segs[k++] = p[i + 1][0]; segs[k++] = p[i + 1][1];
+      }
+    }
+    return { segs, text, grid: null };
+  }
+
+  function buildGrid(pack) {
+    const grid = new Map();
+    const s = pack.segs;
+    for (let i = 0; i < s.length; i += 4) {
+      const gx0 = Math.floor(Math.min(s[i], s[i + 2]) / CELL), gx1 = Math.floor(Math.max(s[i], s[i + 2]) / CELL);
+      const gy0 = Math.floor(Math.min(s[i + 1], s[i + 3]) / CELL), gy1 = Math.floor(Math.max(s[i + 1], s[i + 3]) / CELL);
+      if ((gx1 - gx0 + 1) * (gy1 - gy0 + 1) > 400) continue; // page border: never part of a symbol
+      for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) {
+        const key = gx * 4096 + gy;
+        let l = grid.get(key);
+        if (!l) grid.set(key, (l = []));
+        l.push(i);
+      }
+    }
+    pack.grid = grid;
+  }
+
+  /** Offsets of the segments that touch the box (or lie inside it when `inside`). */
+  function segsIn(pack, [x0, y0, x1, y1], inside) {
+    if (!pack.grid) buildGrid(pack);
+    const s = pack.segs, out = new Set();
+    for (let gx = Math.floor(x0 / CELL); gx <= Math.floor(x1 / CELL); gx++) {
+      for (let gy = Math.floor(y0 / CELL); gy <= Math.floor(y1 / CELL); gy++) {
+        for (const i of pack.grid.get(gx * 4096 + gy) || []) {
+          const a0 = Math.min(s[i], s[i + 2]), a1 = Math.max(s[i], s[i + 2]);
+          const b0 = Math.min(s[i + 1], s[i + 3]), b1 = Math.max(s[i + 1], s[i + 3]);
+          if (inside ? a0 >= x0 && a1 <= x1 && b0 >= y0 && b1 <= y1 : a1 >= x0 && a0 <= x1 && b1 >= y0 && b0 <= y1) out.add(i);
+        }
+      }
+    }
+    return [...out].sort((a, b) => a - b);
+  }
+
+  const len = (s, i) => Math.hypot(s[i + 2] - s[i], s[i + 3] - s[i + 1]);
+
+  function boxOf(s, g) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const i of g) {
+      x0 = Math.min(x0, s[i], s[i + 2]); x1 = Math.max(x1, s[i], s[i + 2]);
+      y0 = Math.min(y0, s[i + 1], s[i + 3]); y1 = Math.max(y1, s[i + 1], s[i + 3]);
+    }
+    return [x0, y0, x1, y1];
+  }
+
+  function ptSeg(px, py, s, i) {
+    const ax = s[i], ay = s[i + 1], dx = s[i + 2] - ax, dy = s[i + 3] - ay;
+    const L = dx * dx + dy * dy;
+    let t = L ? ((px - ax) * dx + (py - ay) * dy) / L : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+  }
+
+  function segsTouch(s, i, j, tol) {
+    if (Math.min(s[i], s[i + 2]) - tol > Math.max(s[j], s[j + 2]) || Math.min(s[j], s[j + 2]) - tol > Math.max(s[i], s[i + 2]) ||
+      Math.min(s[i + 1], s[i + 3]) - tol > Math.max(s[j + 1], s[j + 3]) || Math.min(s[j + 1], s[j + 3]) - tol > Math.max(s[i + 1], s[i + 3])) return false;
+    return Math.min(ptSeg(s[i], s[i + 1], s, j), ptSeg(s[i + 2], s[i + 3], s, j),
+      ptSeg(s[j], s[j + 1], s, i), ptSeg(s[j + 2], s[j + 3], s, i)) <= tol;
+  }
+
+  /**
+   * The symbol in a BOM row's SCHEMATIC DIAGRAM cell, split into its separately drawn
+   * parts (a breaker body with its poles, an auxiliary contact, a coil ...), largest
+   * first.  Text and the dashes of mechanical links are left out.
+   */
+  function symbolParts(pack, box) {
+    const [x0, y0, x1, y1] = box;
+    const s = pack.segs;
+    const idx = segsIn(pack, [x0 + 1, y0 + 1, x1 - 1, y1 - 1], true).filter((i) => !pack.text[i / 4]);
+    const n = idx.length;
+    if (!n) return [];
+    const parent = idx.map((_, k) => k);
+    const find = (k) => { while (parent[k] !== k) { parent[k] = parent[parent[k]]; k = parent[k]; } return k; };
+    for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
+      if (find(a) !== find(b) && segsTouch(s, idx[a], idx[b], 0.3)) parent[find(a)] = find(b);
+    }
+    const groups = new Map();
+    idx.forEach((i, k) => { const r = find(k); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); });
+    const parts = [];
+    for (const g of groups.values()) {
+      const b = boxOf(s, g);
+      const total = g.reduce((a, i) => a + len(s, i), 0);
+      if (Math.max(b[2] - b[0], b[3] - b[1]) < 4 || total < 10) continue; // dashes, dots
+      parts.push({ segs: g, box: b, length: total });
+    }
+    return parts.sort((a, b) => b.length - a.length);
+  }
+
+  // --- matching ------------------------------------------------------------------
+
+  /**
+   * The part turned by (rot % 4) x 90 degrees clockwise, mirrored first when rot >= 4
+   * (display coordinates): its outline as sample points and its longest strokes as
+   * anchors, relative to the turned box corner.
+   */
+  function turned(s, part, rot) {
+    part.turned = part.turned || [];
+    if (part.turned[rot]) return part.turned[rot];
+    const W = part.box[2] - part.box[0], H = part.box[3] - part.box[1];
+    const r = rot % 4;
+    const T = (x, y) => {
+      x -= part.box[0]; y -= part.box[1];
+      if (rot >= 4) x = W - x;
+      return r === 0 ? [x, y] : r === 1 ? [H - y, x] : r === 2 ? [W - x, H - y] : [y, W - x];
+    };
+    const xs = [], ys = [];
+    for (const i of part.segs) {
+      const n = Math.max(1, Math.round(len(s, i) / STEP));
+      for (let t = 0; t <= n; t++) {
+        const [x, y] = T(s[i] + ((s[i + 2] - s[i]) * t) / n, s[i + 1] + ((s[i + 3] - s[i + 1]) * t) / n);
+        xs.push(x); ys.push(y);
+      }
+    }
+    const anchors = part.segs.slice().sort((a, b) => len(s, b) - len(s, a)).slice(0, 4).map((i) => {
+      const p = T(s[i], s[i + 1]), q = T(s[i + 2], s[i + 3]);
+      return norm(p[0], p[1], q[0], q[1]);
+    });
+    // every 4th point for the first pass over the candidate placements
+    const sub = (arr) => arr.filter((_, k) => k % 4 === 0);
+    const out = {
+      xs: Float32Array.from(xs), ys: Float32Array.from(ys), sx: Float32Array.from(sub(xs)), sy: Float32Array.from(sub(ys)),
+      anchors, w: r % 2 ? H : W, h: r % 2 ? W : H,
+    };
+    part.turned[rot] = out;
+    return out;
+  }
+
+  /** A segment with its direction made unique (left to right, or downwards when vertical). */
+  function norm(x0, y0, x1, y1) {
+    if (x1 < x0 - 1e-6 || (Math.abs(x1 - x0) <= 1e-6 && y1 < y0)) return [x1, y1, x0, y0];
+    return [x0, y0, x1, y1];
+  }
+
+  /** Page strokes rasterised once, with one pixel of slack, for the scoring. */
+  function pageRaster(pack) {
+    if (pack.raster) return pack.raster;
+    const s = pack.segs;
+    let W = 0, H = 0;
+    for (let i = 0; i < s.length; i += 4) { W = Math.max(W, s[i], s[i + 2]); H = Math.max(H, s[i + 1], s[i + 3]); }
+    W = Math.ceil(W * RES) + 2; H = Math.ceil(H * RES) + 2;
+    const img = new Uint8Array(W * H);
+    for (let i = 0; i < s.length; i += 4) {
+      const ax = s[i] * RES, ay = s[i + 1] * RES, bx = s[i + 2] * RES, by = s[i + 3] * RES;
+      const steps = Math.max(1, Math.ceil(2 * Math.hypot(bx - ax, by - ay)));
+      for (let t = 0; t <= steps; t++) {
+        const x = Math.round(ax + ((bx - ax) * t) / steps), y = Math.round(ay + ((by - ay) * t) / steps);
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const X = x + dx, Y = y + dy;
+          if (X >= 0 && Y >= 0 && X < W && Y < H) img[Y * W + X] = 1;
+        }
+      }
+    }
+    pack.raster = { img, W, H };
+    return pack.raster;
+  }
+
+  function score(xs, ys, R, k, tx, ty) {
+    const { img, W, H } = R;
+    let hit = 0;
+    const n = xs.length;
+    for (let q = 0; q < n; q++) {
+      const X = Math.round((xs[q] * k + tx) * RES), Y = Math.round((ys[q] * k + ty) * RES);
+      if (X >= 0 && Y >= 0 && X < W && Y < H && img[Y * W + X]) hit++;
+    }
+    return hit / n;
+  }
+
+  /**
+   * Best placement of a BOM part in the window of a schematic page:
+   * {score, k (scale), rot, box}.  Turns by 90 degrees, mirror images (a contact block
+   * drawn the other way round is still the same device) and scales kMin..kMax are tried.
+   */
+  function matchPart(part, bomPack, pack, win, kMin = 0.6, kMax = 2.2) {
+    const s0 = bomPack.segs, s1 = pack.segs;
+    const idx = segsIn(pack, win, false);
+    if (!idx.length) return { score: 0, k: 1, rot: 0, box: null };
+    const R = pageRaster(pack);
+    const segB = idx.map((b) => norm(s1[b], s1[b + 1], s1[b + 2], s1[b + 3]));
+    const cands = [];
+    const tried = new Set();
+    for (let rot = 0; rot < 8; rot++) {
+      const P = turned(s0, part, rot);
+      for (const [ax0, ay0, ax1, ay1] of P.anchors) {
+        const ax = ax1 - ax0, ay = ay1 - ay0, La = Math.hypot(ax, ay);
+        if (La < 2) continue;
+        for (const [bx0, by0, bx1, by1] of segB) {
+          const bx = bx1 - bx0, by = by1 - by0, Lb = Math.hypot(bx, by);
+          const k = Lb / La;
+          if (k < kMin || k > kMax) continue;
+          if (Math.abs(ax * by - ay * bx) > 0.03 * La * Lb || ax * bx + ay * by <= 0) continue; // not parallel
+          const tx = bx0 - ax0 * k, ty = by0 - ay0 * k;
+          const key = `${rot}|${Math.round(k * 50)}|${Math.round(tx * 2)}|${Math.round(ty * 2)}`;
+          if (tried.has(key)) continue;
+          tried.add(key);
+          cands.push([score(P.sx, P.sy, R, k, tx, ty), rot, k, tx, ty]);
+        }
+      }
+    }
+    if (!cands.length) return { score: 0, k: 1, rot: 0, box: null };
+    cands.sort((a, b) => b[0] - a[0]);
+    let best = { score: 0, rot: 0, k: 1, tx: 0, ty: 0 };
+    for (const [, rot, k, tx, ty] of cands.slice(0, 6)) {
+      const P = turned(s0, part, rot);
+      let cur = { score: score(P.xs, P.ys, R, k, tx, ty), rot, k, tx, ty };
+      // polish: small changes of scale and offset
+      for (let round = 0; round < 2; round++) {
+        const base = cur;
+        for (const dk of [-0.02, -0.01, 0, 0.01, 0.02]) {
+          for (const dx of [-0.5, 0, 0.5]) for (const dy of [-0.5, 0, 0.5]) {
+            const k2 = base.k * (1 + dk);
+            const sc = score(P.xs, P.ys, R, k2, base.tx + dx, base.ty + dy);
+            if (sc > cur.score) cur = { score: sc, rot, k: k2, tx: base.tx + dx, ty: base.ty + dy };
+          }
+        }
+      }
+      if (cur.score > best.score) best = cur;
+    }
+    const P = turned(s0, part, best.rot);
+    return { score: best.score, k: best.k, rot: best.rot, box: [best.tx, best.ty, best.tx + P.w * best.k, best.ty + P.h * best.k] };
+  }
+
+  /** Drop the page raster (it is only needed while that page is being compared). */
+  function release(pack) { pack.raster = null; }
+
+  SC.packSegments = packSegments;
+  SC.symbolParts = symbolParts;
+  SC.matchPart = matchPart;
+  SC.segsIn = segsIn;
+  SC.releaseRaster = release;
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));
 
 /* Cross-sheet checks: coil contact tables, contact back-references and BOM sheet lists. */
@@ -1385,13 +1739,117 @@
   /** Pages whose drawing number could not be read take the series of their neighbours. */
   function inferSeries(pages) {
     pages.forEach((p, i) => {
-      if (p.series !== null || p.sheet === null) return;
+      if (p.series !== null || p.sheet === null || p.titled === false) return;
       let prev = null, nxt = null;
       for (let k = i - 1; k >= 0; k--) if (pages[k].series && pages[k].sheet !== null) { prev = pages[k]; break; }
       for (let k = i + 1; k < pages.length; k++) if (pages[k].series && pages[k].sheet !== null) { nxt = pages[k]; break; }
       if (prev && prev.sheet < p.sheet && (!nxt || nxt.series !== prev.series || nxt.sheet > p.sheet)) p.series = prev.series;
       else if (nxt && nxt.sheet > p.sheet) p.series = nxt.series;
     });
+  }
+
+  /**
+   * The name as drawn on the schematics: OCR confuses 1/I and 0/O, so when the BOM text
+   * is not found but a look-alike spelling is, the look-alike is meant.
+   */
+  function resolveName(d, pages) {
+    if (pages.some((q) => q.tokens.has(d))) return d;
+    const swap = { 1: "I", I: "1", 0: "O", O: "0" };
+    const pos = [...d].map((c, i) => (swap[c] ? i : -1)).filter((i) => i >= 0).slice(0, 4);
+    for (let mask = 1; mask < 1 << pos.length; mask++) {
+      const c = [...d];
+      pos.forEach((i, k) => { if (mask & (1 << k)) c[i] = swap[c[i]]; });
+      const v = c.join("");
+      if (pages.some((q) => q.tokens.has(v))) return v;
+    }
+    return d;
+  }
+
+  const SYMBOL_OK = 0.9; // share of the BOM symbol's outline found next to the device
+  const SYMBOL_FLOOR = 0.35; // below this the drawing is not comparable at all (e.g. a picture)
+  // terminal blocks are pictured in the BOM but drawn as terminal strips on the sheets
+  const TERMINAL_BLOCK = /^(?:X|TB|XT)\d+$/;
+
+  /** The tag stands on its own in the line (not a terminal such as -TB01.W1 or X1:5). */
+  function standalone(ln, d) {
+    const t = compact(ln.text).toUpperCase();
+    for (let k = t.indexOf(d); k >= 0; k = t.indexOf(d, k + 1)) {
+      const before = k ? t[k - 1] : "", after = t[k + d.length] || "";
+      if (/[A-Z0-9]/.test(before) || /[A-Z0-9.:]/.test(after)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * For every BOM row and every listed sheet that shows one of its devices: is one of
+   * the parts of the BOM symbol drawn next to the device tag?  Work is grouped by sheet
+   * so that only one page raster is held at a time.
+   */
+  function symbolFindings(pages) {
+    const tasks = new Map(); // schematic page -> [{row, bomPage, names, lines}]
+    for (const p of pages) {
+      if (!p.pack) continue;
+      const sameSeries = pages.filter((q) => q.kind === "schematic" && q.series === p.series && q.sheet !== null && q.pack);
+      for (const row of p.bomRows) {
+        row.parts = row.parts || SC.symbolParts(p.pack, row.symbolBox).filter((pt) => Math.max(pt.box[2] - pt.box[0], pt.box[3] - pt.box[1]) >= 6).slice(0, 8);
+        if (!row.parts.length) continue;
+        for (const q of sameSeries) {
+          if (!row.sheets.includes(q.sheet)) continue;
+          const names = [];
+          for (const d0 of row.designations) {
+            const d = resolveName(d0, sameSeries);
+            if (TERMINAL_BLOCK.test(d)) continue;
+            const lines = (q.tokens.get(d) || []).filter((ln) => standalone(ln, d));
+            if (lines.length) names.push({ d, lines });
+          }
+          if (!names.length) continue;
+          if (!tasks.has(q)) tasks.set(q, []);
+          tasks.get(q).push({ row, bomPage: p, names });
+        }
+      }
+    }
+    const byRow = new Map(); // row -> mismatches on all its sheets
+    for (const [q, list] of tasks) {
+      for (const { row, bomPage, names } of list) {
+        for (const { d, lines } of names) {
+          let best = { score: 0, box: null, line: lines[0] };
+          for (const ln of lines.slice(0, 4)) {
+            for (const part of row.parts) {
+              const S = 2.2 * Math.max(part.box[2] - part.box[0], part.box[3] - part.box[1]) + 10;
+              const r = SC.matchPart(part, bomPage.pack, q.pack, [ln.x0 - S, ln.y0 - S, ln.x1 + S, ln.y1 + S]);
+              if (r.score > best.score) best = { score: r.score, box: r.box, line: ln };
+              if (best.score >= SYMBOL_OK) break;
+            }
+            if (best.score >= SYMBOL_OK) break;
+          }
+          if (best.score >= SYMBOL_OK || best.score < SYMBOL_FLOOR) continue;
+          if (!byRow.has(row)) byRow.set(row, { bomPage, bad: [] });
+          byRow.get(row).bad.push({ d, q, ...best });
+        }
+      }
+      SC.releaseRaster(q.pack);
+    }
+    const out = [];
+    for (const [row, { bomPage, bad }] of byRow) {
+      const names = [...new Set(bad.map((b) => b.d))];
+      const list = names.slice(0, 4).map((d) => `-${d}`).join(", ") + (names.length > 4 ? ` และอีก ${names.length - 4} ตัว` : "");
+      const sheets = [...new Set(bad.map((b) => b.q.sheet))].sort((a, b) => a - b).map(pad2).join(", ");
+      const pct = Math.round(100 * Math.max(...bad.map((b) => b.score)));
+      // the BOM symbol first, then the device tag it was compared with (one per sheet)
+      const marks = [mark(bomPage.index, row.symbolBox)];
+      const shown = new Set();
+      for (const b of bad) {
+        if (shown.has(b.q) || shown.size >= 6) continue;
+        shown.add(b.q);
+        marks.push(mark(b.q.index, bb(b.line, 2)));
+      }
+      out.push(finding("warning", "BOM_SYMBOL_MISMATCH",
+        `BOM: สัญลักษณ์ของ ${list} ใน SHEET ${sheets} ไม่ตรงกับช่อง SCHEMATIC DIAGRAM ของ BOM (เหมือนกันมากสุดประมาณ ${pct}%)`,
+        `เทียบสัญลักษณ์ในแบบกับใน BOM (ขั้ว จำนวนหน้าสัมผัส รูปแบบ) แล้วแก้ให้ตรงกัน`,
+        bomPage.index, bomPage.sheet, marks));
+    }
+    return out;
   }
 
   function check(pages) {
@@ -1512,41 +1970,55 @@
       }
     }
 
-    // 3) BOM: every designation must appear on (at least one of) the sheets listed in its row
+    // 3) BOM: every designation must appear on (at least one of) the sheets of each SHEET
+    //    cell of its row, and every listed sheet must show at least one of the row's devices
     const bomTags = new Set();
     for (const p of pages) {
       const bySheet = bySeries(p.index);
       const sameSeries = pages.filter((q) => q.kind === "schematic" && q.series === p.series && q.sheet !== null);
       for (const row of p.bomRows) {
-        const listed = row.sheets;
         const names = row.designations.slice(0, 4).join(", ") + (row.designations.length > 4 ? "..." : "");
-        for (const s of listed.filter((s) => !bySheet.get(s))) {
-          findings.push(finding("error", "BOM_SHEET_MISSING", `BOM: ${row.designations.slice(0, 4).join(", ")} ระบุ SHEET ${pad2(s)} ซึ่งไม่มีในชุดแบบ`,
-            `แก้เลข SHEET ${pad2(s)}`, p.index, p.sheet, row.sheetLines.map((ln) => mark(p.index, bb(ln)))));
+        const sheetMarks = (cell) => (cell ? cell.lines : row.sheetLines).map((ln) => mark(p.index, bb(ln)));
+        for (const s of row.sheets.filter((s) => !bySheet.get(s))) {
+          findings.push(finding("error", "BOM_SHEET_MISSING", `BOM: ${names} ระบุ SHEET ${pad2(s)} ซึ่งไม่มีในชุดแบบ`,
+            `แก้เลข SHEET ${pad2(s)}`, p.index, p.sheet, sheetMarks(row.cells.find((c) => c.sheets.includes(s)))));
         }
-        for (const d of row.designations) {
+        const split = row.cells.length > 1;
+        for (const d0 of row.designations) {
+          const d = resolveName(d0, sameSeries);
           bomTags.add(d);
           const foundOn = [...new Set(sameSeries.filter((q) => q.tokens.has(d)).map((q) => q.sheet))].sort((a, b) => a - b);
-          if (!listed.length || listed.some((s) => foundOn.includes(s))) continue;
-          const desigMarks = row.desigLines.filter((ln) => compact(ln.text).includes(d)).map((ln) => mark(p.index, bb(ln)));
-          if (foundOn.length) {
+          const desigMarks = row.desigLines.filter((ln) => compact(ln.text).includes(d0) || compact(ln.text).includes(d)).map((ln) => mark(p.index, bb(ln)));
+          if (!foundOn.length) {
+            if (row.sheets.length) {
+              findings.push(finding("warning", "BOM_NOT_FOUND", `BOM: ไม่พบ -${d} ใน SHEET ${row.sheets.map(pad2).join(", ")} (และไม่พบในหน้าอื่น)`,
+                `ตรวจสอบชื่ออุปกรณ์ ${d} ในแบบ`, p.index, p.sheet, desigMarks.length ? desigMarks : row.desigLines.map((ln) => mark(p.index, bb(ln)))));
+            }
+            continue;
+          }
+          for (const cell of row.cells) {
+            if (cell.sheets.some((s) => foundOn.includes(s))) continue;
             const where = foundOn.map(pad2).join(", ");
-            findings.push(finding("error", "BOM_NOT_ON_SHEET", `BOM: ${d} ระบุ SHEET ${listed.map(pad2).join(", ")} แต่พบ -${d} ที่ SHEET ${where}`,
-              `แก้ช่อง SHEET ของ ${d} เป็น ${where}`, p.index, p.sheet, desigMarks.concat(row.sheetLines.map((ln) => mark(p.index, bb(ln))))));
-          } else {
-            findings.push(finding("warning", "BOM_NOT_FOUND", `BOM: ไม่พบ -${d} ใน SHEET ${listed.map(pad2).join(", ")} (และไม่พบในหน้าอื่น)`,
-              `ตรวจสอบชื่ออุปกรณ์ ${d} ในแบบ`, p.index, p.sheet, desigMarks));
+            const part = split ? ` (ช่อง SHEET ${cell.sheets.map(pad2).join(", ")})` : "";
+            findings.push(finding("error", "BOM_NOT_ON_SHEET", `BOM: ${d} ระบุ SHEET ${cell.sheets.map(pad2).join(", ")}${part ? " สำหรับสัญลักษณ์ส่วนนั้น" : ""} แต่พบ -${d} ที่ SHEET ${where}`,
+              `แก้ช่อง SHEET ของ ${d}${part} หรือตรวจชื่อ -${d} ในแบบ SHEET ${cell.sheets.map(pad2).join(", ")}`,
+              p.index, p.sheet, desigMarks.concat(sheetMarks(cell))));
           }
         }
-        for (const s of listed) {
-          const q = bySheet.get(s);
-          if (q && !row.designations.some((d) => q.tokens.has(d))) {
-            findings.push(finding("warning", "BOM_SHEET_UNUSED", `BOM: SHEET ${pad2(s)} ไม่มีอุปกรณ์ในแถวนี้ (${names})`,
-              `ตรวจสอบเลข SHEET ${pad2(s)}`, p.index, p.sheet, row.sheetLines.map((ln) => mark(p.index, bb(ln)))));
+        for (const cell of row.cells) {
+          for (const s of cell.sheets) {
+            const q = bySheet.get(s);
+            if (q && !row.designations.some((d) => q.tokens.has(resolveName(d, sameSeries)))) {
+              findings.push(finding("warning", "BOM_SHEET_UNUSED", `BOM: SHEET ${pad2(s)} ไม่มีอุปกรณ์ในแถวนี้ (${names})`,
+                `ตรวจสอบเลข SHEET ${pad2(s)} หรือชื่ออุปกรณ์ในแบบ SHEET ${pad2(s)}`, p.index, p.sheet, sheetMarks(cell)));
+            }
           }
         }
       }
     }
+
+    // 3b) BOM symbols: the symbol of the row must be the one drawn next to the device
+    findings.push(...symbolFindings(pages));
 
     // 4) coils on schematics that the BOM does not list (only when a BOM exists)
     if (bomTags.size) {
@@ -1632,5 +2104,5 @@
   SC.runCheck = runCheck;
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));
 
-;(window.SC_FILES = window.SC_FILES || {})["Core"] = "a7234d36";
+;(window.SC_FILES = window.SC_FILES || {})["Core"] = "412b07f7";
 </script>
