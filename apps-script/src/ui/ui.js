@@ -8,6 +8,7 @@
     COIL_TABLE_ZONE: "ตำแหน่ง contact ในตารางไม่ตรง",
     COIL_TABLE_MISSING: "ไม่พบ contact ตามตาราง",
     XREF_SHEET_MISSING: "ตารางอ้างถึง SHEET ที่ไม่มี",
+    TABLE_NO_COIL: "ตารางที่ยังไม่ได้ตรวจ (หาเจ้าของไม่พบ)",
     BACKREF_ZONE: "ตำแหน่ง coil ที่ contact อ้างถึงไม่ตรง",
     BACKREF_NOT_FOUND: "ไม่พบอุปกรณ์ที่ contact อ้างถึง",
     BACKREF_SHEET_MISSING: "contact อ้างถึง SHEET ที่ไม่มี",
@@ -21,7 +22,7 @@
   };
   const CATS = [
     { id: "coil", short: "ตาราง coil", label: "ตาราง contact ใต้ coil",
-      codes: ["COIL_TABLE_ZONE", "COIL_TABLE_MISSING", "XREF_SHEET_MISSING"] },
+      codes: ["COIL_TABLE_ZONE", "COIL_TABLE_MISSING", "XREF_SHEET_MISSING", "TABLE_NO_COIL"] },
     { id: "contact", short: "contact → coil", label: "ตำแหน่ง coil ที่ contact อ้างถึง",
       codes: ["BACKREF_ZONE", "BACKREF_NOT_FOUND", "BACKREF_SHEET_MISSING", "CONTACT_NOT_LISTED"] },
     { id: "bom", short: "BOM", label: "Bill of Material",

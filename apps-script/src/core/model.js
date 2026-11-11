@@ -8,6 +8,7 @@
   // words that appear after a dash in switch labels ("ON-OFF") but are not device tags
   const NOT_TAGS = new Set(["ON", "OFF", "AUTO", "MAN", "MANUAL", "TEST", "RESET", "LOCAL", "REMOTE", "RAISE",
     "LOWER", "STOP", "START", "OPEN", "CLOSE", "TRIP", "ALARM", "SPARE", "GND", "PE"]);
+  const RATING = /^\d+(?:\.\d+)?(?:A|KA|MA|V|KV|VA|KVA|W|KW)\.?$/; // "32A.", "6A", "24V"
   const TERM = /^(?:[0-9]{1,3}[A-Z]?|[A-Z][0-9]{1,2}|[0-9]{1,2}\.[0-9]{1,3})$/;
 
   const compact = (s) => s.replace(/ /g, "");
@@ -441,7 +442,8 @@
     for (const b of bx) {
       // the tag written inside its device box ("-47" in a relay outline)
       if (b[0] <= ln.x0 && ln.x1 <= b[2] && b[1] <= ln.y0 && ln.y1 <= b[3] && b[2] - b[0] < 25 * H && b[3] - b[1] < 12 * H) {
-        if (!best || best.side > -1) best = { side: -1, gap: 0, c: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], b };
+        const area = (b[2] - b[0]) * (b[3] - b[1]);
+        if (!best || best.side > -1 || area < best.area) best = { side: -1, gap: 0, area, c: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], b };
         continue;
       }
       // a double coil (latching relay SET/RESET) is two boxes side by side
@@ -467,6 +469,14 @@
     let best = null;
     for (const st of geometry) {
       if (st.size < 1.5 * H) continue;
+      // a contact drawn sideways carries its label above or below it
+      if (st.x1 > x0 && st.x0 < x1 && st.x1 - st.x0 < 12 * H) {
+        const gap = st.y0 >= y1 - 0.3 * H ? st.y0 - y1 : st.y1 <= y0 + 0.3 * H ? y0 - st.y1 : -1;
+        if (gap >= -0.3 * H && gap < 2.5 * H) {
+          const d = Math.max(0, gap) + 1.5 * H;
+          if (!best || d < best.d) best = { d, sx: (x0 + x1) / 2, side: 0, sy: st.y0 >= y1 - 0.3 * H ? st.y0 : st.y1, below: st.y0 >= y1 - 0.3 * H };
+        }
+      }
       if (st.y1 < y0 - H || st.y0 > y1 + H) continue;
       const sx = (st.x0 + st.x1) / 2;
       let d, side;
@@ -476,6 +486,17 @@
       if (!best || d < best.d) best = { d, sx, side };
     }
     if (!best) return [[(x0 + x1) / 2, cy], [x0, y0, x1, y1]];
+    if (best.side === 0) {
+      // the symbol right under (over) the label, as wide as the label
+      const wy0 = best.below ? y1 - 0.3 * H : y0 - 3 * H, wy1 = best.below ? y1 + 3 * H : y0 + 0.3 * H;
+      let bx0 = best.sx, bx1 = best.sx, by0 = best.sy, by1 = best.sy;
+      for (const st of geometry) {
+        if (st.x1 < x0 - H || st.x0 > x1 + H || st.y1 < wy0 || st.y0 > wy1) continue;
+        bx0 = Math.min(bx0, Math.max(st.x0, x0 - H)); bx1 = Math.max(bx1, Math.min(st.x1, x1 + H));
+        by0 = Math.min(by0, Math.max(st.y0, wy0)); by1 = Math.max(by1, Math.min(st.y1, wy1));
+      }
+      return [[best.sx, (by0 + by1) / 2], [bx0, by0, bx1, by1]];
+    }
     const { sx, side } = best;
     const wx0 = side > 0 ? x1 : x0 - 4 * H, wx1 = side > 0 ? x1 + 4 * H : x0;
     const wy0 = y0 - H, wy1 = y1 + H;
@@ -571,6 +592,20 @@
         if (below || vert) {
           const d = Math.abs(x.line.cy - ln.cy) + Math.abs(x.line.cx - ln.cx) * 0.2;
           if (!best || d < best[0]) best = [d, tag, ln];
+        }
+      }
+      if (!best && x.line.rot === 0) {
+        // the device rating may stand between the name and its reference:
+        //   -QL1
+        //   32A.
+        //   /49.B7
+        for (const [tag, ln] of tagLines) {
+          if (ln.rot !== 0 || ln === x.line) continue;
+          const gap = x.line.y0 - ln.y1;
+          if (gap < 1.6 * H || gap > 3.6 * H || overlap(ln.x0, ln.x1, x.line.x0, x.line.x1) < 0.3 * Math.min(ln.x1 - ln.x0, x.line.x1 - x.line.x0)) continue;
+          const between = lines.filter((m) => m !== ln && m !== x.line && m.rot === 0 && m.cy > ln.y1 && m.cy < x.line.y0 &&
+            overlap(m.x0, m.x1, Math.min(ln.x0, x.line.x0), Math.max(ln.x1, x.line.x1)) > 0);
+          if (between.length === 1 && RATING.test(compact(between[0].text)) && (!best || gap < best[0])) best = [gap, tag, ln];
         }
       }
       if (best && !rowTerminals(x, lines).length) backrefOf.set(x, [best[1], best[2]]);
@@ -777,6 +812,51 @@
     return [...new Set(out)];
   }
 
+  /**
+   * The rules between the rows of an equipment list, as y positions.  Row rules run across
+   * the whole table; the rules inside a row (over its "SHEET 12/G6" lines) are long too but
+   * start further right.  So: long rules grouped by where they start, and the group of the
+   * longest ones is taken.
+   */
+  function tableRules(strokes, w) {
+    // a rule may be drawn in pieces (cell by cell) or as part of a polyline: join the
+    // horizontal pieces that continue each other
+    const byY = new Map();
+    for (const st of strokes) {
+      const p = st.pts;
+      for (let k = 0; k + 1 < p.length; k++) {
+        if (Math.abs(p[k][1] - p[k + 1][1]) > 0.1 || Math.abs(p[k][0] - p[k + 1][0]) < 5) continue;
+        const key = Math.round(p[k][1] * 4);
+        if (!byY.has(key)) byY.set(key, []);
+        byY.get(key).push([Math.min(p[k][0], p[k + 1][0]), Math.max(p[k][0], p[k + 1][0]), p[k][1]]);
+      }
+    }
+    const long = [];
+    for (const segs of byY.values()) {
+      segs.sort((a, b) => a[0] - b[0]);
+      let cur = null;
+      for (const [x0, x1, y] of segs.concat([[Infinity, Infinity, 0]])) {
+        if (cur && x0 <= cur.x1 + 0.6) { cur.x1 = Math.max(cur.x1, x1); continue; }
+        if (cur && cur.x1 - cur.x0 > 0.3 * w) long.push(cur);
+        cur = { x0, x1, y0: y, y1: y };
+      }
+    }
+    const groups = [];
+    for (const st of long) {
+      let g = groups.find((q) => Math.abs(q.x0 - st.x0) < 3);
+      if (!g) groups.push((g = { x0: st.x0, list: [] }));
+      g.list.push(st);
+    }
+    let best = null;
+    for (const g of groups) {
+      if (g.list.length < 3) continue;
+      const lens = g.list.map((st) => st.x1 - st.x0).sort((a, b) => a - b);
+      g.len = lens[lens.length >> 1];
+      if (!best || g.len > best.len) best = g;
+    }
+    return best ? [...new Set(best.list.map((st) => Math.round((st.y0 + st.y1) * 5) / 10))].sort((a, b) => a - b) : [];
+  }
+
   // --- page ----------------------------------------------------------------------
 
   /**
@@ -796,10 +876,10 @@
     // "Complete equipment representation / Position in schematic"): a reference to such a
     // page points at the symbol in the row of the device, not at its name
     const up = (realText + " " + texts).toUpperCase();
-    const equipmentList = up.includes("DESTINATION") && (up.includes("POSITION") || up.includes("EQUIPMENT"));
-    const hrules = equipmentList
-      ? strokes.filter((st) => Math.abs(st.y1 - st.y0) < 0.2 && st.x1 - st.x0 > 0.5 * w).map((st) => (st.y0 + st.y1) / 2).sort((a, b) => a - b)
-      : [];
+    // ... recognised by its headings, or by the "12/G6" positions it lists
+    const positions = lines.filter((ln) => /^\d{1,3}\/[A-L]\d{1,2}$/.test(compact(ln.text))).length;
+    const equipmentList = (up.includes("DESTINATION") && (up.includes("POSITION") || up.includes("EQUIPMENT"))) || positions >= 3;
+    const hrules = equipmentList ? tableRules(strokes, w) : [];
     let kind;
     if ((realText.includes("DESIGNATION") || texts.includes("DESIGNATION")) && (realText.includes("QTY") || texts.includes("QTY"))) kind = "bom";
     else if (grid.cols.length && grid.rows.length) kind = "schematic";

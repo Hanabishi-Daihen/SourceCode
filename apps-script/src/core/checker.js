@@ -288,6 +288,18 @@
       }
     }
 
+    // 1b) contact tables whose coil could not be made out: say so instead of skipping them
+    for (const p of pages) {
+      for (const table of p.orphanTables || []) {
+        if (table.length < 2) continue;
+        const refs = table.map((r) => String(r.xref));
+        findings.push(finding("warning", "TABLE_NO_COIL",
+          `ตาราง contact ${refs.length} แถว (${refs.slice(0, 3).join(", ")}${refs.length > 3 ? " ..." : ""}) หาอุปกรณ์เจ้าของตารางไม่พบ จึงยังไม่ได้ตรวจ`,
+          "ตรวจตารางนี้ด้วยตนเอง (ชื่ออุปกรณ์อาจอยู่ห่างจากสัญลักษณ์ หรืออ่านชื่อไม่ออก)", p.index, p.sheet,
+          table.map((r) => mark(p.index, xb(r.xref)))));
+      }
+    }
+
     // 2) contacts -> back-reference points at the coil/device, and the coil table lists the contact
     for (const cl of contacts.values()) {
       const tag = cl[0].tag;

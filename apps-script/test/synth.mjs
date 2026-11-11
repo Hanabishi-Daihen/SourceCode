@@ -224,11 +224,16 @@ export class Sheet {
 
 // --- running the checker on sheets ---------------------------------------------------
 
-/** Page sources for SC.analysePage, one per sheet. */
-export function sources(SC, sheets) {
+/**
+ * Page sources for SC.analysePage, one per sheet.  `grid` snaps every point to a plot
+ * raster of that many points, the way a plotter driver does (AutoCAD PDFs: 0.12), which
+ * bends small text a little; `shift` moves the sheet off the raster first.
+ */
+export function sources(SC, sheets, { grid = 0.001, shift = 0 } = {}) {
+  const q = (v) => Math.round((Math.round((v + shift) / grid) * grid) * 1000) / 1000;
   return sheets.map((s, i) => ({
     index: i, width: W, height: H, textItems: [], viewportTransform: [1, 0, 0, 1, 0, 0],
-    strokes: s.strokes.map((pl) => new SC.Stroke(pl.map((p) => [Math.round(p[0] * 1000) / 1000, Math.round(p[1] * 1000) / 1000]))),
+    strokes: s.strokes.map((pl) => new SC.Stroke(pl.map((p) => [q(p[0]), q(p[1])]))),
   }));
 }
 

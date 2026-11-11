@@ -6,7 +6,8 @@
     "build": "node build.mjs",
     "test": "node test/unit.mjs && node test/scenarios-test.mjs",
     "bench": "node test/bench.mjs",
-    "pdf": "node test/make-pdf.mjs"
+    "pdf": "node test/make-pdf.mjs",
+    "test:browser": "node build.mjs && node test/make-pdf.mjs && node test/browser.cjs build/scenarios.pdf build/shots"
   },
   "devDependencies": {
     "pdf-lib": "1.17.1",

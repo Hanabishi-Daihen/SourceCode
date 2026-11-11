@@ -10,7 +10,7 @@ vm.runInThisContext(fs.readFileSync(new URL("../build/glyphs.js", import.meta.ur
 const lib = new SC.TemplateLibrary(globalThis.SC_GLYPHS);
 const verbose = process.argv.includes("-v");
 
-const { sheets, expected } = build();
+const { sheets, expected, zones } = build();
 const pages = sources(SC, sheets).map((s) => SC.analysePage(s, lib, {}));
 if (verbose) {
   for (const p of pages) {
@@ -25,6 +25,11 @@ let bad = 0;
 for (const e of expected) {
   const k = left.findIndex((f) => f.code === e.code && e.has.every((h) => (f.message + " " + f.fix).includes(h)));
   if (k < 0) { bad++; console.log(`MISSING  ${e.code}  ${e.has.join(" | ")}`); } else left.splice(k, 1);
+}
+for (const [tag, sheet, zone] of zones) {
+  const c = pages.flatMap((p) => p.contacts).find((k) => k.tag === tag && k.zone.sheet === sheet);
+  const got = c ? c.zone.row + c.zone.col : "not found";
+  if (got !== zone) { bad++; console.log(`ZONE     contact -${tag} on sheet ${sheet}: ${got}, expected ${zone}`); }
 }
 for (const f of left) { bad++; console.log(`EXTRA    ${f.code}  ${f.message}  => ${f.fix}`); }
 const s = report.stats;

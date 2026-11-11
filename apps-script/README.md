@@ -111,9 +111,22 @@ clasp deploy
 ```bash
 npm install          # pdf.js และ pdf-lib สำหรับทดสอบใน Node
 npm run build        # สร้าง dist/apps-script และ dist/standalone.html
-node test/unit.mjs   # unit test
+npm test             # unit test + ชุดแบบจำลอง (ต้องผ่านก่อน build ทุกครั้ง)
+npm run bench        # วัดความเร็วกับแบบจำลองแบบหนาแน่น
+npm run test:browser # build แล้วทดสอบทั้งระบบใน Chromium ด้วย PDF จากแบบจำลอง
 node test/run-node.mjs drawing.pdf report.json   # ตรวจไฟล์จาก command line
 ```
+
+### ชุดแบบจำลอง (regression drawings)
+
+แบบของลูกค้าไม่ได้เก็บไว้ใน repository การทดสอบจึงใช้แบบที่วาดขึ้นเอง:
+
+- `test/synth.mjs` — วาดแผ่นงาน schematic ทีละเส้นด้วยรูปตัวอักษรที่เก็บมาจากแบบจริง
+  (กรอบ + ช่อง zone, title block, coil + ตาราง contact, contact + ตำแหน่งอ้างอิง)
+- `test/scenarios.mjs` — หนึ่งกรณีต่อหนึ่งรูปแบบการเขียนแบบที่เคยเจอ พร้อมจุดผิดที่รู้คำตอบ
+  โปรแกรมต้องรายงานจุดผิดครบตามนั้นและห้ามรายงานเกิน **เมื่อเจอรูปแบบใหม่หรือแก้ข้อผิดพลาด ให้เพิ่มกรณีที่นี่**
+- `test/bench.mjs` — แผ่นงานหนาแน่น (ไม่มีจุดผิด) สำหรับวัดความเร็วและตรวจว่าไม่มีการแจ้งผิด
+- `test/make-pdf.mjs` — เขียนทั้งสองชุดเป็น PDF ไว้ที่ `build/` (ใช้ลองกับหน้าเว็บได้)
 
 - `src/core/` — ตัวอ่านและตัวตรวจ (port มาจาก `backend/schcheck/` ที่เป็น Python)
 - `src/ui/` — หน้าเว็บ
