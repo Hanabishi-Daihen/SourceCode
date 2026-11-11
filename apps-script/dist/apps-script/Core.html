@@ -462,6 +462,9 @@
 
   const MIN_SCORE = 0.8;
   const ALT_MIN = 0.85; // a rescued shape must look this much like its character
+  const BIG_GLYPH = 16; // pt; larger text than MAX_GLYPH is read only as a name after a dash
+  const BIG_STROKE = 20;
+  const BIG_SCORE = 0.88;
   const MAX_GLYPH = 10.0; // pt; anything larger is drawing geometry, not text
   const DOT = 0.75; // pt; atoms smaller than this in both directions are dots
   const NEUTRAL = new Set(["|", "-", "/", "X", "x", "+", "."]);
@@ -505,6 +508,28 @@
     return ch === "|" ? "-" : ch === "-" ? "|" : ch;
   }
 
+  /**
+   * Classify an atom, remembering the answer for its exact shape: a drawing repeats the
+   * same characters and symbol pieces thousands of times (same font, same blocks), so most
+   * atoms of a sheet set have been seen before.
+   */
+  function classifyAtom(at, lib, minScore) {
+    const cache = lib.cache || (lib.cache = new Map());
+    let key = minScore === MIN_SCORE ? "" : "B";
+    for (const s of at.strokes) {
+      for (const p of s.pts) key += `${Math.round((p[0] - at.x0) * 100)},${Math.round((p[1] - at.y0) * 100)},`;
+      key += ";";
+    }
+    let r = cache.get(key);
+    if (r === undefined) {
+      const polys = at.strokes.map((s) => s.pts.map((p) => [p[0] - at.x0, p[1] - at.y0]));
+      r = lib.classify(polys, minScore);
+      if (cache.size > 200000) cache.clear();
+      cache.set(key, r);
+    }
+    return r;
+  }
+
   /** Glyphs of the page, and the shapes that look a bit more like drawing than text (rescue). */
   function classifyPage(strokes, lib, rescue = []) {
     const glyphs = [];
@@ -514,8 +539,7 @@
         continue;
       }
       if (Math.max(at.w, at.h) > MAX_GLYPH || at.strokes.length > 25) continue;
-      const polys = at.strokes.map((s) => s.pts.map((p) => [p[0] - at.x0, p[1] - at.y0]));
-      const r = lib.classify(polys, MIN_SCORE);
+      const r = classifyAtom(at, lib, MIN_SCORE);
       if (r.ch === null && r.alt && r.alt.score >= ALT_MIN) {
         rescue.push({ atom: at, ch: r.alt.ch, rot: r.alt.rot, score: r.alt.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
         continue;
@@ -524,6 +548,26 @@
       glyphs.push({ atom: at, ch: r.ch, rot: r.rot, score: r.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
     }
     return glyphs;
+  }
+
+  /**
+   * Characters larger than ordinary text (a device number written big inside its outline,
+   * "-47").  Shapes of that size are mostly drawing, so only clear upright letters and
+   * digits are taken here, and readPage keeps them only as a name after a dash.
+   */
+  function classifyBig(strokes, glyphs, lib) {
+    const inText = new Set();
+    for (const g of glyphs) for (const s of g.atom.strokes) inText.add(s);
+    const cands = strokes.filter((s) => s.size <= BIG_STROKE && s.size > 1 && !inText.has(s));
+    const out = [];
+    for (const at of SC.buildAtoms(cands, BIG_STROKE)) {
+      const size = Math.max(at.w, at.h);
+      if (at.h <= MAX_GLYPH || size > BIG_GLYPH || at.strokes.length > 25) continue;
+      const r = classifyAtom(at, lib, BIG_SCORE);
+      if (r.ch === null || r.score < BIG_SCORE || r.rot !== 0 || !/[0-9A-Z]/.test(r.ch)) continue;
+      out.push({ atom: at, ch: r.ch, rot: 0, score: r.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
+    }
+    return out;
   }
 
   function median(arr) {
@@ -581,6 +625,12 @@
   }
 
   function attachNeutrals(glyphs, lines, taken, fb) {
+    // neutral glyphs sorted by their top, so each line only looks at those in its band
+    const neutral = [];
+    for (let i = 0; i < glyphs.length; i++) if (!taken.has(i) && NEUTRAL.has(glyphs[i].ch)) neutral.push(i);
+    neutral.sort((a, b) => fb[a][1] - fb[b][1]);
+    const tops = neutral.map((i) => fb[i][1]);
+    const lower = (v) => { let lo = 0, hi = tops.length; while (lo < hi) { const m = (lo + hi) >> 1; if (tops[m] < v) lo = m + 1; else hi = m; } return lo; };
     for (const { members, H } of lines) {
       const inLine = new Set(members);
       let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
@@ -588,11 +638,13 @@
         u0 = Math.min(u0, fb[i][0]); u1 = Math.max(u1, fb[i][2]);
         v0 = Math.min(v0, fb[i][1]); v1 = Math.max(v1, fb[i][3]);
       }
+      // in glyph order, as a full scan would visit them
+      const near = neutral.slice(lower(v0 - 0.6 * H - 1e-6), lower(v1 + 0.6 * H + 1e-6)).sort((a, b) => a - b);
       let changed = true;
       while (changed) {
         changed = false;
-        for (let i = 0; i < glyphs.length; i++) {
-          if (taken.has(i) || !NEUTRAL.has(glyphs[i].ch) || inLine.has(i)) continue;
+        for (const i of near) {
+          if (taken.has(i) || inLine.has(i)) continue;
           const [gu0, gv0, gu1, gv1] = fb[i];
           if (gu1 < u0 - H || gu0 > u1 + H) continue;
           // a slash may reach above and below the digits ("/07.B1" in some fonts)
@@ -736,17 +788,95 @@
     // leftover vertical bars that are text on their own (terminal "1"); bars stacked in a
     // column with others are the dashes of a dashed line
     const bars = glyphs.filter((g, i) => !taken.has(i) && g.ch === "|");
+    const byColumn = new Map();
+    for (const g of bars) {
+      const k = Math.round(g.x0 * 5);
+      if (!byColumn.has(k)) byColumn.set(k, []);
+      byColumn.get(k).push(g);
+    }
     const dashed = (g) => {
-      const h = g.y1 - g.y0;
-      return bars.some((o) => o !== g && Math.abs(o.x0 - g.x0) < 0.2 && Math.abs(o.y1 - o.y0 - h) < 0.2 * h &&
-        Math.min(Math.abs(o.y0 - g.y1), Math.abs(g.y0 - o.y1)) < 1.5 * h);
+      const h = g.y1 - g.y0, k = Math.round(g.x0 * 5);
+      for (let d = -1; d <= 1; d++) {
+        for (const o of byColumn.get(k + d) || []) {
+          if (o !== g && Math.abs(o.x0 - g.x0) < 0.2 && Math.abs(o.y1 - o.y0 - h) < 0.2 * h &&
+            Math.min(Math.abs(o.y0 - g.y1), Math.abs(g.y0 - o.y1)) < 1.5 * h) return true;
+        }
+      }
+      return false;
     };
+    // bars side by side are one number ("11")
+    const free = [];
     glyphs.forEach((g, i) => {
       if (taken.has(i) || g.ch !== "|") return;
       const h = g.y1 - g.y0;
-      if (h >= 1.2 && h <= MAX_GLYPH && !dashed(g)) { all.push({ members: [i], H: h, rot: 0 }); taken.add(i); }
+      if (h >= 1.2 && h <= MAX_GLYPH && !dashed(g)) free.push(i);
     });
-    return mergeSplitLines(all.map((l) => lineText(glyphs, l.members, l.H, l.rot)));
+    free.sort((a, b) => glyphs[a].x0 - glyphs[b].x0);
+    for (const i of free) {
+      if (taken.has(i)) continue;
+      const g = glyphs[i], h = g.y1 - g.y0;
+      const members = [i];
+      let end = g.x1;
+      for (const j of free) {
+        const o = glyphs[j];
+        if (taken.has(j) || members.includes(j) || o.x0 <= end) continue;
+        if (o.x0 - end > 0.8 * h) break;
+        if (Math.abs(o.y0 - g.y0) < 0.15 * h && Math.abs(o.y1 - g.y1) < 0.15 * h) { members.push(j); end = o.x1; }
+      }
+      for (const j of members) taken.add(j);
+      all.push({ members, H: h, rot: 0 });
+    }
+    bigNames(strokes, glyphs, taken, all, lib);
+    return splitAfterRefs(mergeSplitLines(all.map((l) => lineText(glyphs, l.members, l.H, l.rot))));
+  }
+
+  /** Large characters right after a dash form a device name ("-47" in a relay outline). */
+  function bigNames(strokes, glyphs, taken, all, lib) {
+    const big = classifyBig(strokes, glyphs, lib).sort((a, b) => a.x0 - b.x0);
+    const used = new Set();
+    for (const first of big) {
+      if (used.has(first)) continue;
+      const h = first.y1 - first.y0;
+      const group = [first];
+      for (const o of big) {
+        const last = group[group.length - 1];
+        if (o === last || used.has(o) || group.includes(o) || o.x0 < last.x1 - 0.1 * h) continue;
+        if (o.x0 - last.x1 > 0.9 * h) break;
+        if (Math.abs(o.y1 - first.y1) < 0.2 * h && Math.abs(o.y1 - o.y0 - h) < 0.25 * h) group.push(o);
+      }
+      // the dash is ordinary-sized: a free "-" just left of the name, at mid height
+      const dash = glyphs.findIndex((g, i) => !taken.has(i) && g.ch === "-" && g.y1 - g.y0 < 0.1 * h &&
+        g.x1 <= first.x0 + 0.1 * h && first.x0 - g.x1 < 0.8 * h && g.y0 > first.y0 + 0.25 * h && g.y1 < first.y1 - 0.2 * h);
+      if (dash < 0 || group.length < 2) continue;
+      const members = [dash];
+      for (const g of group) { used.add(g); members.push(glyphs.length); glyphs.push(g); }
+      taken.add(dash);
+      all.push({ members, H: h, rot: 0 });
+    }
+  }
+
+  /**
+   * A cross-reference ends its text: what follows after a gap is something else, usually
+   * the first terminal of the next contact table ("/06.F3 3 ").
+   */
+  function splitAfterRefs(lines) {
+    const out = [];
+    const re = /\/\d{1,3}\.?[A-L]\d{1,2}(?= +\S)/;
+    for (let ln of lines) {
+      for (;;) {
+        const m = ln.glyphs.length ? re.exec(ln.text) : null;
+        const count = ln.text.replace(/ /g, "").length;
+        if (!m || count !== ln.glyphs.length) break;
+        const cut = m.index + m[0].length;
+        const n = ln.text.slice(0, cut).replace(/ /g, "").length;
+        const part = (text, gl) => new TextLine(text, ln.rot, Math.min(...gl.map((g) => g.x0)), Math.min(...gl.map((g) => g.y0)),
+          Math.max(...gl.map((g) => g.x1)), Math.max(...gl.map((g) => g.y1)), ln.height, gl);
+        out.push(part(ln.text.slice(0, cut), ln.glyphs.slice(0, n)));
+        ln = part(ln.text.slice(cut).trim(), ln.glyphs.slice(n));
+      }
+      out.push(ln);
+    }
+    return out;
   }
 
   /** Re-join cross-references split at the slash ('2 /' + '05.E1' -> '2 /05.E1'). */
@@ -2056,13 +2186,26 @@
    */
   function inListRow(page, ln, ref) {
     const r = page.grid.rect(ref.row, ref.col, page.width, page.height);
-    if (!r) return false;
-    // rows are separated by rules across the whole table (the short rules inside a row
-    // only separate its sub-lines)
+    const band = listRow(page, ln);
+    return !!r && !!band && r[1] < band[1] - 0.5 && r[3] > band[0] + 0.5 && r[2] > ln.x1;
+  }
+
+  /**
+   * [top, bottom] of the table row a name stands in.  Rows are separated by rules across
+   * the whole table (the short rules inside a row only separate its sub-lines).
+   */
+  function listRow(page, ln) {
     const above = page.hrules.filter((y) => y <= ln.cy), below = page.hrules.filter((y) => y > ln.cy);
-    if (!above.length || !below.length) return false;
-    const top = above[above.length - 1], bottom = below[0];
-    return r[1] < bottom - 0.5 && r[3] > top + 0.5 && r[2] > ln.x1;
+    return above.length && below.length ? [above[above.length - 1], below[0]] : null;
+  }
+
+  /** Zone rows a band of the page covers, as "C-E". */
+  function bandRows(page, band) {
+    const rows = page.grid.rows.map(([r]) => r).filter((r) => {
+      const b = page.grid.rect(r, page.grid.cols[0][0], page.width, page.height);
+      return b && b[1] < band[1] - 2 && b[3] > band[0] + 2;
+    });
+    return rows.length > 1 ? `${rows[0]}-${rows[rows.length - 1]}` : rows[0] || "?";
   }
 
   function check(pages, opts = {}) {
@@ -2081,9 +2224,12 @@
     const bySeries = (pi) => ({ get: (s) => sheets.get(`${pages[pi].series}|${s}`) || null });
 
     const coils = new Map(), contacts = new Map();
+    const sk = (page, tag) => `${pages[page].series}\u0000${tag}`;
     for (const p of pages) {
-      for (const c of p.coils) { if (!coils.has(c.tag)) coils.set(c.tag, []); coils.get(c.tag).push(c); }
-      for (const c of p.contacts) { if (!contacts.has(c.tag)) contacts.set(c.tag, []); contacts.get(c.tag).push(c); }
+      // names are per drawing series: -X1 of the terminal drawings is not -X1 of the schematics
+      const add = (map, c) => { const k = sk(c.page, c.tag); if (!map.has(k)) map.set(k, []); map.get(k).push(c); };
+      for (const c of p.coils) add(coils, c);
+      for (const c of p.contacts) add(contacts, c);
     }
 
     function occurrences(page, tag) {
@@ -2102,12 +2248,14 @@
 
     // a contact is "listed" when some table row of its coil points at its zones; a table
     // row that is wrong usually means one such unlisted contact: they are reported together
-    const listedIn = (c) => (coils.get(c.tag) || []).some((k) => k.rows.some((r) => r.xref.inZones(c.zone.sheet, c.zones)));
+    const listedIn = (c) => (coils.get(sk(c.page, c.tag)) || []).some((k) => k.rows.some((r) => r.xref.inZones(c.zone.sheet, c.zones)));
     const explained = new Set();
     const strayFor = new Map();
 
     // 1) coil contact tables -> contact really drawn at that sheet/zone?
-    for (const [tag, cl] of coils) {
+    for (const cl of coils.values()) {
+      const tag = cl[0].tag;
+      const sameTag = contacts.get(sk(cl[0].page, tag)) || [];
       for (const coil of cl) {
         const sheetHere = pages[coil.page].sheet;
         const bySheet = bySeries(coil.page);
@@ -2121,15 +2269,14 @@
             continue;
           }
           verified.rows++;
-          const here = (contacts.get(tag) || []).filter((c) => c.page === target.index);
+          const here = sameTag.filter((c) => c.page === target.index);
           if (here.some((c) => x.inZones(c.zone.sheet, c.zones))) { verified.rowsOk++; continue; }
           const occ = occurrences(target, tag);
           if (occ.some(([, z]) => x.inZones(target.sheet, z))) { verified.rowsOk++; continue; }
           const byTerm = here.filter((c) => row.terminals.some((t) => c.terminals.includes(t)));
           const match = byTerm.length ? byTerm : here;
           // elsewhere in the set: a contact with these terminals that no row points at
-          const series = pages[coil.page].series;
-          const stray = (contacts.get(tag) || []).filter((c) => pages[c.page].series === series && c.page !== target.index &&
+          const stray = sameTag.filter((c) => c.page !== target.index &&
             !listedIn(c) && row.terminals.some((t) => c.terminals.includes(t)));
           const key = `${coil.page}|${coil.line.x0}|${x}`;
           if (!stray.length && strayFor.has(key)) stray.push(strayFor.get(key)); // other poles of the same contact
@@ -2162,8 +2309,9 @@
     }
 
     // 2) contacts -> back-reference points at the coil/device, and the coil table lists the contact
-    for (const [tag, cl] of contacts) {
-      const coilList = coils.get(tag) || [];
+    for (const cl of contacts.values()) {
+      const tag = cl[0].tag;
+      const coilList = coils.get(sk(cl[0].page, tag)) || [];
       for (const c of cl) {
         const ref = c.backref;
         const here = zs(c.zone);
@@ -2175,7 +2323,7 @@
           let ok = coilList.some((k) => ref.inZones(k.zone.sheet, k.zones));
           const occ = target ? occurrences(target, tag) : [];
           if (!ok && target) {
-            const contactLines = new Set((contacts.get(tag) || []).map((k) => k.line));
+            const contactLines = new Set(cl.map((k) => k.line));
             ok = occ.some(([ln, z]) => !contactLines.has(ln) && ref.inZones(target.sheet, z));
             if (!ok && target.equipmentList) ok = occ.some(([ln]) => inListRow(target, ln, ref));
           }
@@ -2190,6 +2338,16 @@
             } else if (occ.length) {
               const ln = occ[0][0];
               const z = target.zoneOf(ln.cx, ln.cy);
+              const band = target.equipmentList ? listRow(target, ln) : null;
+              if (band) {
+                // equipment list: the reference should point at the symbol in the device's row
+                const rows = bandRows(target, band);
+                findings.push(finding("error", "BACKREF_ZONE",
+                  `-${tag} ที่ ${here} อ้างถึง ${ref} แต่ในตารางอุปกรณ์ SHEET ${pad2(ref.sheet)} แถวของ -${tag} อยู่ที่แถว ${rows} (ชื่ออยู่ที่ ${zs(z)})`,
+                  `แก้ ${ref} ให้ชี้ไปที่สัญลักษณ์ในแถวของ -${tag} (แถว ${rows})`, c.page, c.zone.sheet,
+                  [mark(c.page, xb(ref))].concat(occ.map(([o]) => mark(target.index, bb(o))))));
+                continue;
+              }
               findings.push(finding("error", "BACKREF_ZONE", `contact -${tag} ที่ ${here} ระบุตำแหน่งอุปกรณ์เป็น ${ref} แต่พบ -${tag} ที่ ${zs(z)}`,
                 `แก้ ${ref} เป็น ${zs(z)}`, c.page, c.zone.sheet, [mark(c.page, xb(ref))].concat(occ.map(([o]) => mark(target.index, bb(o))))));
             } else {
@@ -2202,13 +2360,17 @@
           if (!listedIn(c)) {
             const k = coilList[0];
             // the row meant for this contact: same terminals, else one pointing at this sheet
+            // a row with the same terminals, or one for this sheet that no contact answers to
+            const mine = cl.filter((o) => o !== c);
             const rowsHere = k.rows.filter((r) => r.xref.sheet === c.zone.sheet);
-            const near = rowsHere.find((r) => r.terminals.some((t) => c.terminals.includes(t))) || rowsHere[0];
+            const near = rowsHere.find((r) => r.terminals.some((t) => c.terminals.includes(t))) ||
+              rowsHere.find((r) => !mine.some((o) => r.xref.inZones(o.zone.sheet, o.zones)));
             const where = `ตารางใต้ coil -${tag} (ที่ ${zs(k.zone)})`;
+            const term = c.terminals.length ? ` ${c.terminals.slice().sort().join("-")}` : "";
             const msg = near
               ? `contact -${tag} ที่ ${here}: ${where} ระบุ ${near.terminals.join("-") || "contact"} ไว้ที่ ${near.xref} ไม่ใช่ ${here}`
-              : `contact -${tag} ที่ ${here}: ${where} ไม่มีแถวที่ชี้มาที่ SHEET ${pad2(c.zone.sheet)}`;
-            const fix = near ? `แก้ ${near.xref} เป็น ${here} หรือตรวจตำแหน่ง contact นี้` : `เพิ่มแถว ${here} ในตารางใต้ coil -${tag}`;
+              : `contact -${tag}${term} ที่ ${here}: ${where} ไม่มีแถวของ contact นี้`;
+            const fix = near ? `แก้ ${near.xref} เป็น ${here} หรือตรวจตำแหน่ง contact นี้` : `เพิ่มแถว${term} ${here} ในตารางใต้ coil -${tag}`;
             findings.push(finding("error", "CONTACT_NOT_LISTED", msg, fix, c.page, c.zone.sheet,
               [mark(c.page, bb(c.line))].concat((near ? [near] : k.rows).map((r) => mark(k.page, xb(r.xref))))));
           }
@@ -2269,7 +2431,8 @@
 
     // 4) coils on schematics that the BOM does not list (only when a BOM exists)
     if (bomTags.size) {
-      for (const [tag, cl] of coils) {
+      for (const cl of coils.values()) {
+        const tag = cl[0].tag;
         if (!bomTags.has(tag)) {
           const c = cl[0];
           findings.push(finding("warning", "NOT_IN_BOM", `coil -${tag} ไม่มีใน BOM`, `เพิ่ม ${tag} ใน BOM`, c.page, c.zone.sheet, [mark(c.page, bb(c.line))]));
@@ -2360,5 +2523,5 @@
   SC.runCheck = runCheck;
 })(typeof globalThis !== "undefined" ? (globalThis.SC = globalThis.SC || {}) : (self.SC = self.SC || {}));
 
-;(window.SC_FILES = window.SC_FILES || {})["Core"] = "4edad15a";
+;(window.SC_FILES = window.SC_FILES || {})["Core"] = "f2661d20";
 </script>

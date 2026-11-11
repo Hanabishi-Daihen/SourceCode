@@ -8,6 +8,9 @@
 
   const MIN_SCORE = 0.8;
   const ALT_MIN = 0.85; // a rescued shape must look this much like its character
+  const BIG_GLYPH = 16; // pt; larger text than MAX_GLYPH is read only as a name after a dash
+  const BIG_STROKE = 20;
+  const BIG_SCORE = 0.88;
   const MAX_GLYPH = 10.0; // pt; anything larger is drawing geometry, not text
   const DOT = 0.75; // pt; atoms smaller than this in both directions are dots
   const NEUTRAL = new Set(["|", "-", "/", "X", "x", "+", "."]);
@@ -51,6 +54,28 @@
     return ch === "|" ? "-" : ch === "-" ? "|" : ch;
   }
 
+  /**
+   * Classify an atom, remembering the answer for its exact shape: a drawing repeats the
+   * same characters and symbol pieces thousands of times (same font, same blocks), so most
+   * atoms of a sheet set have been seen before.
+   */
+  function classifyAtom(at, lib, minScore) {
+    const cache = lib.cache || (lib.cache = new Map());
+    let key = minScore === MIN_SCORE ? "" : "B";
+    for (const s of at.strokes) {
+      for (const p of s.pts) key += `${Math.round((p[0] - at.x0) * 100)},${Math.round((p[1] - at.y0) * 100)},`;
+      key += ";";
+    }
+    let r = cache.get(key);
+    if (r === undefined) {
+      const polys = at.strokes.map((s) => s.pts.map((p) => [p[0] - at.x0, p[1] - at.y0]));
+      r = lib.classify(polys, minScore);
+      if (cache.size > 200000) cache.clear();
+      cache.set(key, r);
+    }
+    return r;
+  }
+
   /** Glyphs of the page, and the shapes that look a bit more like drawing than text (rescue). */
   function classifyPage(strokes, lib, rescue = []) {
     const glyphs = [];
@@ -60,8 +85,7 @@
         continue;
       }
       if (Math.max(at.w, at.h) > MAX_GLYPH || at.strokes.length > 25) continue;
-      const polys = at.strokes.map((s) => s.pts.map((p) => [p[0] - at.x0, p[1] - at.y0]));
-      const r = lib.classify(polys, MIN_SCORE);
+      const r = classifyAtom(at, lib, MIN_SCORE);
       if (r.ch === null && r.alt && r.alt.score >= ALT_MIN) {
         rescue.push({ atom: at, ch: r.alt.ch, rot: r.alt.rot, score: r.alt.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
         continue;
@@ -70,6 +94,26 @@
       glyphs.push({ atom: at, ch: r.ch, rot: r.rot, score: r.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
     }
     return glyphs;
+  }
+
+  /**
+   * Characters larger than ordinary text (a device number written big inside its outline,
+   * "-47").  Shapes of that size are mostly drawing, so only clear upright letters and
+   * digits are taken here, and readPage keeps them only as a name after a dash.
+   */
+  function classifyBig(strokes, glyphs, lib) {
+    const inText = new Set();
+    for (const g of glyphs) for (const s of g.atom.strokes) inText.add(s);
+    const cands = strokes.filter((s) => s.size <= BIG_STROKE && s.size > 1 && !inText.has(s));
+    const out = [];
+    for (const at of SC.buildAtoms(cands, BIG_STROKE)) {
+      const size = Math.max(at.w, at.h);
+      if (at.h <= MAX_GLYPH || size > BIG_GLYPH || at.strokes.length > 25) continue;
+      const r = classifyAtom(at, lib, BIG_SCORE);
+      if (r.ch === null || r.score < BIG_SCORE || r.rot !== 0 || !/[0-9A-Z]/.test(r.ch)) continue;
+      out.push({ atom: at, ch: r.ch, rot: 0, score: r.score, x0: at.x0, y0: at.y0, x1: at.x1, y1: at.y1 });
+    }
+    return out;
   }
 
   function median(arr) {
@@ -127,6 +171,12 @@
   }
 
   function attachNeutrals(glyphs, lines, taken, fb) {
+    // neutral glyphs sorted by their top, so each line only looks at those in its band
+    const neutral = [];
+    for (let i = 0; i < glyphs.length; i++) if (!taken.has(i) && NEUTRAL.has(glyphs[i].ch)) neutral.push(i);
+    neutral.sort((a, b) => fb[a][1] - fb[b][1]);
+    const tops = neutral.map((i) => fb[i][1]);
+    const lower = (v) => { let lo = 0, hi = tops.length; while (lo < hi) { const m = (lo + hi) >> 1; if (tops[m] < v) lo = m + 1; else hi = m; } return lo; };
     for (const { members, H } of lines) {
       const inLine = new Set(members);
       let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
@@ -134,11 +184,13 @@
         u0 = Math.min(u0, fb[i][0]); u1 = Math.max(u1, fb[i][2]);
         v0 = Math.min(v0, fb[i][1]); v1 = Math.max(v1, fb[i][3]);
       }
+      // in glyph order, as a full scan would visit them
+      const near = neutral.slice(lower(v0 - 0.6 * H - 1e-6), lower(v1 + 0.6 * H + 1e-6)).sort((a, b) => a - b);
       let changed = true;
       while (changed) {
         changed = false;
-        for (let i = 0; i < glyphs.length; i++) {
-          if (taken.has(i) || !NEUTRAL.has(glyphs[i].ch) || inLine.has(i)) continue;
+        for (const i of near) {
+          if (taken.has(i) || inLine.has(i)) continue;
           const [gu0, gv0, gu1, gv1] = fb[i];
           if (gu1 < u0 - H || gu0 > u1 + H) continue;
           // a slash may reach above and below the digits ("/07.B1" in some fonts)
@@ -282,17 +334,95 @@
     // leftover vertical bars that are text on their own (terminal "1"); bars stacked in a
     // column with others are the dashes of a dashed line
     const bars = glyphs.filter((g, i) => !taken.has(i) && g.ch === "|");
+    const byColumn = new Map();
+    for (const g of bars) {
+      const k = Math.round(g.x0 * 5);
+      if (!byColumn.has(k)) byColumn.set(k, []);
+      byColumn.get(k).push(g);
+    }
     const dashed = (g) => {
-      const h = g.y1 - g.y0;
-      return bars.some((o) => o !== g && Math.abs(o.x0 - g.x0) < 0.2 && Math.abs(o.y1 - o.y0 - h) < 0.2 * h &&
-        Math.min(Math.abs(o.y0 - g.y1), Math.abs(g.y0 - o.y1)) < 1.5 * h);
+      const h = g.y1 - g.y0, k = Math.round(g.x0 * 5);
+      for (let d = -1; d <= 1; d++) {
+        for (const o of byColumn.get(k + d) || []) {
+          if (o !== g && Math.abs(o.x0 - g.x0) < 0.2 && Math.abs(o.y1 - o.y0 - h) < 0.2 * h &&
+            Math.min(Math.abs(o.y0 - g.y1), Math.abs(g.y0 - o.y1)) < 1.5 * h) return true;
+        }
+      }
+      return false;
     };
+    // bars side by side are one number ("11")
+    const free = [];
     glyphs.forEach((g, i) => {
       if (taken.has(i) || g.ch !== "|") return;
       const h = g.y1 - g.y0;
-      if (h >= 1.2 && h <= MAX_GLYPH && !dashed(g)) { all.push({ members: [i], H: h, rot: 0 }); taken.add(i); }
+      if (h >= 1.2 && h <= MAX_GLYPH && !dashed(g)) free.push(i);
     });
-    return mergeSplitLines(all.map((l) => lineText(glyphs, l.members, l.H, l.rot)));
+    free.sort((a, b) => glyphs[a].x0 - glyphs[b].x0);
+    for (const i of free) {
+      if (taken.has(i)) continue;
+      const g = glyphs[i], h = g.y1 - g.y0;
+      const members = [i];
+      let end = g.x1;
+      for (const j of free) {
+        const o = glyphs[j];
+        if (taken.has(j) || members.includes(j) || o.x0 <= end) continue;
+        if (o.x0 - end > 0.8 * h) break;
+        if (Math.abs(o.y0 - g.y0) < 0.15 * h && Math.abs(o.y1 - g.y1) < 0.15 * h) { members.push(j); end = o.x1; }
+      }
+      for (const j of members) taken.add(j);
+      all.push({ members, H: h, rot: 0 });
+    }
+    bigNames(strokes, glyphs, taken, all, lib);
+    return splitAfterRefs(mergeSplitLines(all.map((l) => lineText(glyphs, l.members, l.H, l.rot))));
+  }
+
+  /** Large characters right after a dash form a device name ("-47" in a relay outline). */
+  function bigNames(strokes, glyphs, taken, all, lib) {
+    const big = classifyBig(strokes, glyphs, lib).sort((a, b) => a.x0 - b.x0);
+    const used = new Set();
+    for (const first of big) {
+      if (used.has(first)) continue;
+      const h = first.y1 - first.y0;
+      const group = [first];
+      for (const o of big) {
+        const last = group[group.length - 1];
+        if (o === last || used.has(o) || group.includes(o) || o.x0 < last.x1 - 0.1 * h) continue;
+        if (o.x0 - last.x1 > 0.9 * h) break;
+        if (Math.abs(o.y1 - first.y1) < 0.2 * h && Math.abs(o.y1 - o.y0 - h) < 0.25 * h) group.push(o);
+      }
+      // the dash is ordinary-sized: a free "-" just left of the name, at mid height
+      const dash = glyphs.findIndex((g, i) => !taken.has(i) && g.ch === "-" && g.y1 - g.y0 < 0.1 * h &&
+        g.x1 <= first.x0 + 0.1 * h && first.x0 - g.x1 < 0.8 * h && g.y0 > first.y0 + 0.25 * h && g.y1 < first.y1 - 0.2 * h);
+      if (dash < 0 || group.length < 2) continue;
+      const members = [dash];
+      for (const g of group) { used.add(g); members.push(glyphs.length); glyphs.push(g); }
+      taken.add(dash);
+      all.push({ members, H: h, rot: 0 });
+    }
+  }
+
+  /**
+   * A cross-reference ends its text: what follows after a gap is something else, usually
+   * the first terminal of the next contact table ("/06.F3 3 ").
+   */
+  function splitAfterRefs(lines) {
+    const out = [];
+    const re = /\/\d{1,3}\.?[A-L]\d{1,2}(?= +\S)/;
+    for (let ln of lines) {
+      for (;;) {
+        const m = ln.glyphs.length ? re.exec(ln.text) : null;
+        const count = ln.text.replace(/ /g, "").length;
+        if (!m || count !== ln.glyphs.length) break;
+        const cut = m.index + m[0].length;
+        const n = ln.text.slice(0, cut).replace(/ /g, "").length;
+        const part = (text, gl) => new TextLine(text, ln.rot, Math.min(...gl.map((g) => g.x0)), Math.min(...gl.map((g) => g.y0)),
+          Math.max(...gl.map((g) => g.x1)), Math.max(...gl.map((g) => g.y1)), ln.height, gl);
+        out.push(part(ln.text.slice(0, cut), ln.glyphs.slice(0, n)));
+        ln = part(ln.text.slice(cut).trim(), ln.glyphs.slice(n));
+      }
+      out.push(ln);
+    }
+    return out;
   }
 
   /** Re-join cross-references split at the slash ('2 /' + '05.E1' -> '2 /05.E1'). */

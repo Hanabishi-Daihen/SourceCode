@@ -166,13 +166,26 @@
    */
   function inListRow(page, ln, ref) {
     const r = page.grid.rect(ref.row, ref.col, page.width, page.height);
-    if (!r) return false;
-    // rows are separated by rules across the whole table (the short rules inside a row
-    // only separate its sub-lines)
+    const band = listRow(page, ln);
+    return !!r && !!band && r[1] < band[1] - 0.5 && r[3] > band[0] + 0.5 && r[2] > ln.x1;
+  }
+
+  /**
+   * [top, bottom] of the table row a name stands in.  Rows are separated by rules across
+   * the whole table (the short rules inside a row only separate its sub-lines).
+   */
+  function listRow(page, ln) {
     const above = page.hrules.filter((y) => y <= ln.cy), below = page.hrules.filter((y) => y > ln.cy);
-    if (!above.length || !below.length) return false;
-    const top = above[above.length - 1], bottom = below[0];
-    return r[1] < bottom - 0.5 && r[3] > top + 0.5 && r[2] > ln.x1;
+    return above.length && below.length ? [above[above.length - 1], below[0]] : null;
+  }
+
+  /** Zone rows a band of the page covers, as "C-E". */
+  function bandRows(page, band) {
+    const rows = page.grid.rows.map(([r]) => r).filter((r) => {
+      const b = page.grid.rect(r, page.grid.cols[0][0], page.width, page.height);
+      return b && b[1] < band[1] - 2 && b[3] > band[0] + 2;
+    });
+    return rows.length > 1 ? `${rows[0]}-${rows[rows.length - 1]}` : rows[0] || "?";
   }
 
   function check(pages, opts = {}) {
@@ -191,9 +204,12 @@
     const bySeries = (pi) => ({ get: (s) => sheets.get(`${pages[pi].series}|${s}`) || null });
 
     const coils = new Map(), contacts = new Map();
+    const sk = (page, tag) => `${pages[page].series}\u0000${tag}`;
     for (const p of pages) {
-      for (const c of p.coils) { if (!coils.has(c.tag)) coils.set(c.tag, []); coils.get(c.tag).push(c); }
-      for (const c of p.contacts) { if (!contacts.has(c.tag)) contacts.set(c.tag, []); contacts.get(c.tag).push(c); }
+      // names are per drawing series: -X1 of the terminal drawings is not -X1 of the schematics
+      const add = (map, c) => { const k = sk(c.page, c.tag); if (!map.has(k)) map.set(k, []); map.get(k).push(c); };
+      for (const c of p.coils) add(coils, c);
+      for (const c of p.contacts) add(contacts, c);
     }
 
     function occurrences(page, tag) {
@@ -212,12 +228,14 @@
 
     // a contact is "listed" when some table row of its coil points at its zones; a table
     // row that is wrong usually means one such unlisted contact: they are reported together
-    const listedIn = (c) => (coils.get(c.tag) || []).some((k) => k.rows.some((r) => r.xref.inZones(c.zone.sheet, c.zones)));
+    const listedIn = (c) => (coils.get(sk(c.page, c.tag)) || []).some((k) => k.rows.some((r) => r.xref.inZones(c.zone.sheet, c.zones)));
     const explained = new Set();
     const strayFor = new Map();
 
     // 1) coil contact tables -> contact really drawn at that sheet/zone?
-    for (const [tag, cl] of coils) {
+    for (const cl of coils.values()) {
+      const tag = cl[0].tag;
+      const sameTag = contacts.get(sk(cl[0].page, tag)) || [];
       for (const coil of cl) {
         const sheetHere = pages[coil.page].sheet;
         const bySheet = bySeries(coil.page);
@@ -231,15 +249,14 @@
             continue;
           }
           verified.rows++;
-          const here = (contacts.get(tag) || []).filter((c) => c.page === target.index);
+          const here = sameTag.filter((c) => c.page === target.index);
           if (here.some((c) => x.inZones(c.zone.sheet, c.zones))) { verified.rowsOk++; continue; }
           const occ = occurrences(target, tag);
           if (occ.some(([, z]) => x.inZones(target.sheet, z))) { verified.rowsOk++; continue; }
           const byTerm = here.filter((c) => row.terminals.some((t) => c.terminals.includes(t)));
           const match = byTerm.length ? byTerm : here;
           // elsewhere in the set: a contact with these terminals that no row points at
-          const series = pages[coil.page].series;
-          const stray = (contacts.get(tag) || []).filter((c) => pages[c.page].series === series && c.page !== target.index &&
+          const stray = sameTag.filter((c) => c.page !== target.index &&
             !listedIn(c) && row.terminals.some((t) => c.terminals.includes(t)));
           const key = `${coil.page}|${coil.line.x0}|${x}`;
           if (!stray.length && strayFor.has(key)) stray.push(strayFor.get(key)); // other poles of the same contact
@@ -272,8 +289,9 @@
     }
 
     // 2) contacts -> back-reference points at the coil/device, and the coil table lists the contact
-    for (const [tag, cl] of contacts) {
-      const coilList = coils.get(tag) || [];
+    for (const cl of contacts.values()) {
+      const tag = cl[0].tag;
+      const coilList = coils.get(sk(cl[0].page, tag)) || [];
       for (const c of cl) {
         const ref = c.backref;
         const here = zs(c.zone);
@@ -285,7 +303,7 @@
           let ok = coilList.some((k) => ref.inZones(k.zone.sheet, k.zones));
           const occ = target ? occurrences(target, tag) : [];
           if (!ok && target) {
-            const contactLines = new Set((contacts.get(tag) || []).map((k) => k.line));
+            const contactLines = new Set(cl.map((k) => k.line));
             ok = occ.some(([ln, z]) => !contactLines.has(ln) && ref.inZones(target.sheet, z));
             if (!ok && target.equipmentList) ok = occ.some(([ln]) => inListRow(target, ln, ref));
           }
@@ -300,6 +318,16 @@
             } else if (occ.length) {
               const ln = occ[0][0];
               const z = target.zoneOf(ln.cx, ln.cy);
+              const band = target.equipmentList ? listRow(target, ln) : null;
+              if (band) {
+                // equipment list: the reference should point at the symbol in the device's row
+                const rows = bandRows(target, band);
+                findings.push(finding("error", "BACKREF_ZONE",
+                  `-${tag} ที่ ${here} อ้างถึง ${ref} แต่ในตารางอุปกรณ์ SHEET ${pad2(ref.sheet)} แถวของ -${tag} อยู่ที่แถว ${rows} (ชื่ออยู่ที่ ${zs(z)})`,
+                  `แก้ ${ref} ให้ชี้ไปที่สัญลักษณ์ในแถวของ -${tag} (แถว ${rows})`, c.page, c.zone.sheet,
+                  [mark(c.page, xb(ref))].concat(occ.map(([o]) => mark(target.index, bb(o))))));
+                continue;
+              }
               findings.push(finding("error", "BACKREF_ZONE", `contact -${tag} ที่ ${here} ระบุตำแหน่งอุปกรณ์เป็น ${ref} แต่พบ -${tag} ที่ ${zs(z)}`,
                 `แก้ ${ref} เป็น ${zs(z)}`, c.page, c.zone.sheet, [mark(c.page, xb(ref))].concat(occ.map(([o]) => mark(target.index, bb(o))))));
             } else {
@@ -312,13 +340,17 @@
           if (!listedIn(c)) {
             const k = coilList[0];
             // the row meant for this contact: same terminals, else one pointing at this sheet
+            // a row with the same terminals, or one for this sheet that no contact answers to
+            const mine = cl.filter((o) => o !== c);
             const rowsHere = k.rows.filter((r) => r.xref.sheet === c.zone.sheet);
-            const near = rowsHere.find((r) => r.terminals.some((t) => c.terminals.includes(t))) || rowsHere[0];
+            const near = rowsHere.find((r) => r.terminals.some((t) => c.terminals.includes(t))) ||
+              rowsHere.find((r) => !mine.some((o) => r.xref.inZones(o.zone.sheet, o.zones)));
             const where = `ตารางใต้ coil -${tag} (ที่ ${zs(k.zone)})`;
+            const term = c.terminals.length ? ` ${c.terminals.slice().sort().join("-")}` : "";
             const msg = near
               ? `contact -${tag} ที่ ${here}: ${where} ระบุ ${near.terminals.join("-") || "contact"} ไว้ที่ ${near.xref} ไม่ใช่ ${here}`
-              : `contact -${tag} ที่ ${here}: ${where} ไม่มีแถวที่ชี้มาที่ SHEET ${pad2(c.zone.sheet)}`;
-            const fix = near ? `แก้ ${near.xref} เป็น ${here} หรือตรวจตำแหน่ง contact นี้` : `เพิ่มแถว ${here} ในตารางใต้ coil -${tag}`;
+              : `contact -${tag}${term} ที่ ${here}: ${where} ไม่มีแถวของ contact นี้`;
+            const fix = near ? `แก้ ${near.xref} เป็น ${here} หรือตรวจตำแหน่ง contact นี้` : `เพิ่มแถว${term} ${here} ในตารางใต้ coil -${tag}`;
             findings.push(finding("error", "CONTACT_NOT_LISTED", msg, fix, c.page, c.zone.sheet,
               [mark(c.page, bb(c.line))].concat((near ? [near] : k.rows).map((r) => mark(k.page, xb(r.xref))))));
           }
@@ -379,7 +411,8 @@
 
     // 4) coils on schematics that the BOM does not list (only when a BOM exists)
     if (bomTags.size) {
-      for (const [tag, cl] of coils) {
+      for (const cl of coils.values()) {
+        const tag = cl[0].tag;
         if (!bomTags.has(tag)) {
           const c = cl[0];
           findings.push(finding("warning", "NOT_IN_BOM", `coil -${tag} ไม่มีใน BOM`, `เพิ่ม ${tag} ใน BOM`, c.page, c.zone.sheet, [mark(c.page, bb(c.line))]));
